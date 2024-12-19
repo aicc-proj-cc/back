@@ -1,0 +1,5 @@
+# openai_api 연결
+OPENAI_API_KEY=yourkey
+# PostgreSQL 데이터베이스 연결
+DATABASE_URL=postgresql://username:yourpasswd@yourDB:db_prot/db_name
+
