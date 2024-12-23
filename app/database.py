@@ -25,7 +25,8 @@ class Character(Base):
     character_status_message = Column(ARRAY(String), nullable=False)  # 상태 메시지 (리스트 형식)
     character_prompt = Column(Text, nullable=False)  # 캐릭터 프롬프트
     character_image = Column(Text, nullable=False)  # 이미지 URL
-    character_likes = Column(Integer, default=0)  # 좋아요 숫자
+    character_likes = Column(Integer, default=0)  # 캐릭터 호감도
+    character_thumbs = Column(Integer, default=0)  # 캐릭터 좋아요 수
     is_active = Column(Boolean, default=True)  # 활성화 여부
     character_created_at = Column(DateTime, default=datetime.utcnow)  # 생성 날짜
 
@@ -39,6 +40,8 @@ class ChatRoom(Base):
     character_name = Column(String(255), nullable=False) # 캐릭터 이름
     character_image = Column(Text, nullable=False) # 캐릭터 이미지
     character_status_message = Column(ARRAY(String), nullable=False)  # 캐릭터 상태 메시지 (리스트 형식)
+    character_likes = Column(Integer, nullable=False)  # 캐릭터 호감도
+    character_emotion = Column(String, default="보통")  # 캐릭터 기분
     created_at = Column(DateTime, default=datetime.utcnow) # 캐릭터 생성 일자
 
 # 메시지 모델

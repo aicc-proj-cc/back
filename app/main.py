@@ -3,16 +3,28 @@
 from fastapi import FastAPI, Depends, HTTPException # FastAPI 프레임워크 및 종속성 주입 도구
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
 from database import SessionLocal, ChatRoom, Message, Character # DB 세션과 모델 가져오기
-from openai_api import get_openai_response  # OpenAI API / 캐릭터 챗봇 응답 반환
 from typing import List # 데이터 타입 리스트 지원
 from pydantic import BaseModel, Field # 데이터 검증 및 스키마 생성용 Pydantic 모델
 import uuid # 고유 ID 생성을 위한 UUID 라이브러리
 from datetime import datetime # 날짜 및 시간 처리
 from fastapi.middleware.cors import CORSMiddleware # CORS 설정용 미들웨어
 
+import requests
+# from auth import verify_token
+
+# RabbitMQ 파트
+import pika
+import json
+import time
 
 # FastAPI 앱 초기화
 app = FastAPI()
+
+# RabbitMQ 연결 설정
+# RABBITMQ_HOST = "localhost"
+RABBITMQ_HOST = "222.112.27.120"
+REQUEST_QUEUE = "image_generation_requests"
+RESPONSE_QUEUE = "image_generation_responses"
 
 # CORS 설정: 모든 도메인, 메서드, 헤더를 허용
 app.add_middleware(
@@ -67,6 +79,7 @@ class CreateCharacterSchema(BaseModel):
     character_description: str  # 캐릭터 설명
     character_status_message: List[str]  # 캐릭터 상태 메시지 (리스트 형식)
     character_prompt: str  # 캐릭터 프롬프트
+    character_likes: int  # 캐릭터 기본 호감도
     character_image: str  # 캐릭터 이미지 URL
 
 # 캐릭터 응답 스키마
@@ -80,7 +93,8 @@ class CharacterResponseSchema(BaseModel):
     character_description: str # 캐릭터 설명
     character_status_message: List[str] # 캐릭터 상태 메시지
     character_created_at: str  # 문자열로 변환
-    character_likes: int # 좋아요 수
+    character_likes: int # 디폴트 호감도
+    character_thumbs: int # 좋아요 수
     is_active: bool # 캐릭터 숨김 여부
     character_prompt: str # 캐릭터 프롬프트
     character_image: str # 캐릭터 이미지
@@ -90,6 +104,29 @@ class CharacterResponseSchema(BaseModel):
         json_encoders = {
             datetime: lambda v: v.isoformat()  # datetime 문자열로 변환
         }
+
+
+# 이미지 생성 요청 스키마
+class ImageRequest(BaseModel):
+    prompt: str
+    negative_prompt: str = "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry"
+    width: int = 512
+    height: int = 512
+    guidance_scale: float = 12.0
+    num_inference_steps: int = 60
+
+
+def get_rabbitmq_channel():
+    """
+    RabbitMQ 연결 및 채널 반환
+    """
+    connection = pika.BlockingConnection(
+        pika.ConnectionParameters(host=RABBITMQ_HOST, heartbeat=6000)
+    )
+    channel = connection.channel()
+    channel.queue_declare(queue=REQUEST_QUEUE, durable=True)
+    channel.queue_declare(queue=RESPONSE_QUEUE, durable=True)
+    return connection, channel
 
 
 # ====== API 엔드포인트 ======
@@ -122,6 +159,7 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
         character_name=character.character_name,
         character_image=character.character_image,
         character_status_message=character.character_status_message,  # ARRAY로 저장
+        character_likes=character.character_likes,
     )
     db.add(new_room)
     db.commit()
@@ -176,15 +214,35 @@ def get_chat_logs(room_id: str, db: Session = Depends(get_db)):
     logs = db.query(Message).filter(Message.room_id == room_id).all() # 채팅방 ID에 맞는 메시지 가져오기
     return [{"sender": log.sender, "content": log.content, "timestamp": log.timestamp} for log in logs]
 
-# 메시지 전송 및 OpenAI 응답
-@app.post("/api/chat/{room_id}/{character}")
-def send_message(room_id: str, character: str, message: MessageSchema, db: Session = Depends(get_db)):
+# 채팅방에서 캐릭터 정보 불러오기
+@app.get("/api/chat-room-info/{room_id}")
+def get_chat_room_info(room_id: str, db: Session = Depends(get_db)):
     """
-    사용자의 메시지를 저장하고, OpenAI API로부터 캐릭터의 응답을 받아 저장.
+    특정 채팅방의 정보를 반환하는 API 엔드포인트.
     """
+    chat_room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
+    if not chat_room:
+        raise HTTPException(status_code=404, detail="해당 채팅방을 찾을 수 없습니다.")
 
-    # 채팅방 정보 가져오기
+    return {
+        "room_id": chat_room.id,
+        "character_name": chat_room.character_name,
+        "character_emotion": chat_room.character_emotion,
+        "character_likes": chat_room.character_likes
+    }
+
+
+# 채팅 전송 및 캐릭터 응답 - LangChain 서버 이용
+LANGCHAIN_SERVER_URL = "http://localhost:8001"  # LangChain 서버 URL
+
+@app.post("/api/chat/{room_id}")
+def query_langchain(room_id: str, message: MessageSchema, db: Session = Depends(get_db)):
+    """
+    LangChain 서버에 요청을 보내기 전에 사용자 인증 검증.
+    """
+    # db 에서 채팅방 정보 불러오기
     room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
+
     if not room:
         raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
     
@@ -199,26 +257,43 @@ def send_message(room_id: str, character: str, message: MessageSchema, db: Sessi
     db.add(user_message) # 사용자 메시지 DB에 추가
     db.commit() # 변경사항 저장
 
-    # OpenAI API를 통해 캐릭터의 응답 생성
-    bot_response = get_openai_response(
-        prompt=room.character_prompt,
-        user_message=message.content,
-        character_name=room.character_name
-        ) # 캐릭터 응답 생성 - 상단의 get_openai_response 라이브러리 참조
-    bot_message_id = str(uuid.uuid4()) # 고유 메시지 ID 생성
+    # LangChain 서버로 요청 보내기
+    bot_response = requests.post(
+        f"{LANGCHAIN_SERVER_URL}/generate/",
+        json={
+            "user_message": message.content,
+            "prompt": room.character_prompt,
+            "character_name": room.character_name,
+            "character_likes": room.character_likes,
+        }
+    )
+    if bot_response.status_code != 200:
+        raise HTTPException(status_code=bot_response.status_code, detail="LangChain 서버 요청 실패")
+
+    # LangChain 서버 응답에서 텍스트 추출
+    response_data = bot_response.json()  # JSON 데이터로 변환
+    print("response_data", response_data)
+    bot_response_text = response_data.get("text", "openai_api 에러가 발생했습니다.") # OpenAI로부터 받은 응답
+    predicted_emotion = response_data.get("emotion", "Neutral")  # 캐릭터 기분 추출
+    updated_likes = response_data.get("character_likes", room.character_likes)  # 업데이트된 호감도
+
+    # 캐릭터 상태 업데이트
+    room.character_likes = updated_likes
+    room.character_emotion = predicted_emotion
+    db.commit()  # 변경사항 저장
 
     # 캐릭터 응답 메세지 생성
+    bot_message_id = str(uuid.uuid4()) # 고유 메시지 ID 생성
     bot_message = Message(
         id=bot_message_id, 
         room_id=room_id, 
-        sender=character, # 캐릭터 이름
-        content=bot_response # OpenAI로부터 받은 응답
+        sender=room.character_name, # 캐릭터 이름
+        content=bot_response_text
         )
     db.add(bot_message) # 캐릭터 응답 메시지 DB에 추가
     db.commit() # 변경사항 저장
 
-    return {"user": message.content, "bot": bot_response} # 사용자와 봇의 메시지 반환
-
+    return {"user": message.content, "bot": bot_response_text, "updated_likes": updated_likes, "emotion": predicted_emotion} # 사용자와 봇의 메시지 반환 및 캐릭터 상태 업데이트 반환
 
 
 # 캐릭터 생성 API
@@ -228,13 +303,13 @@ def create_character(character: CreateCharacterSchema, db: Session = Depends(get
     새로운 캐릭터를 생성하는 API 엔드포인트.
     클라이언트가 전달한 데이터를 기반으로 캐릭터를 데이터베이스에 저장하고, 생성된 캐릭터 정보를 반환.
     """
-
     # 새 캐릭터 객체 생성
     new_character = Character(
         character_field=character.character_field, # 캐릭터 장르 또는 카테고리
         character_name=character.character_name, # 캐릭터 이름
         character_description=character.character_description, # 캐릭터 설명
         character_status_message=character.character_status_message, # 캐릭터 상태 메시지 (리스트)
+        character_likes=character.character_likes, # 캐릭터 프롬프트
         character_prompt=character.character_prompt, # 캐릭터 프롬프트
         character_image=character.character_image, # 캐릭터 이미지 주소
     )
@@ -252,7 +327,8 @@ def create_character(character: CreateCharacterSchema, db: Session = Depends(get
         character_description=new_character.character_description,
         character_status_message=new_character.character_status_message,
         character_created_at=new_character.character_created_at.isoformat(),
-        character_likes=new_character.character_likes, # 캐릭터 좋아요 수
+        character_likes=new_character.character_likes, # 캐릭터 호감도
+        character_thumbs=new_character.character_thumbs, # 캐릭터 좋아요 수
         is_active=new_character.is_active, # 캐릭터 숨김 여부
         character_prompt=new_character.character_prompt,
         character_image=new_character.character_image,
@@ -280,6 +356,7 @@ def get_characters(db: Session = Depends(get_db)):
             "character_status_message": char.character_status_message,
             "character_created_at": char.character_created_at.isoformat(),  # datetime -> string 변환
             "character_likes": char.character_likes,
+            "character_thumbs": char.character_thumbs,
             "is_active": char.is_active,
             "character_prompt": char.character_prompt,
             "character_image": char.character_image,
@@ -327,3 +404,55 @@ def get_room_character(room_id: str, db: Session = Depends(get_db)):
         "character_image": character.character_image,
         "character_status_message": character.character_status_message,
     }
+
+
+# 이미지 생성 요청 API
+@app.post("/generate-image/")
+def send_to_queue(request: ImageRequest):
+    """
+    RabbitMQ 큐에 이미지 생성 요청을 추가하고, 결과를 대기.
+    """
+    try:
+        # RabbitMQ 연결
+        # connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+        connection, channel = get_rabbitmq_channel()
+        request_id = str(uuid.uuid4())
+
+        # 요청 메시지 작성
+        message = {
+            "id": request_id,
+            "prompt": request.prompt,
+            "negative_prompt": request.negative_prompt,
+            "width": request.width,
+            "height": request.height,
+            "guidance_scale": request.guidance_scale,
+            "num_inference_steps": request.num_inference_steps,
+        }
+
+        # 메시지를 요청 큐에 추가
+        channel.basic_publish(
+            exchange="",
+            routing_key=REQUEST_QUEUE,
+            body=json.dumps(message),
+            properties=pika.BasicProperties(delivery_mode=1),
+        )
+        print(f"이미지 생성 요청 전송: {request_id}")
+
+        # 응답 큐에서 결과 대기
+        for _ in range(6000):  # 최대 600초 대기 ( 100분 )
+            method, properties, body = channel.basic_get(RESPONSE_QUEUE, auto_ack=True)
+            if body:
+                response = json.loads(body)
+                if response["id"] == request_id:
+                    connection.close()
+                    return {"image": response["image"]}
+            time.sleep(1)
+
+        connection.close()
+        raise HTTPException(status_code=504, detail="응답 시간 초과")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+
+# uvicorn main:app --reload --log-level debug --port 8000

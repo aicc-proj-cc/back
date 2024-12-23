@@ -7,3 +7,4 @@ langchain
 openai
 psycopg2
 langchain_openai
+pika
