@@ -1,8 +1,9 @@
-from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Boolean, ARRAY, JSON
+from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Boolean, ARRAY, JSON, UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 from dotenv import load_dotenv
+import uuid
 import os
 
 load_dotenv()
@@ -42,7 +43,7 @@ class CharacterPrompt(Base):
     character_personality = Column(Text, nullable=False)  # JSON을 Text로 변경
     character_background = Column(Text, nullable=False)  # JSON을 Text로 변경
     character_speech_style = Column(Text, nullable=False)  # JSON을 Text로 변경
-    example_dialogues = Column(ARRAY(Text), nullable=True)  # JSON을 Text로 변경
+    example_dialogues = Column(ARRAY(JSON), nullable=True)  # JSON을 Text로 변경
 
 # 채팅방 모델
 class ChatRoom(Base):
@@ -57,6 +58,7 @@ class ChatRoom(Base):
     character_likes = Column(Integer, nullable=False)  # 캐릭터 호감도
     character_emotion = Column(String, default="보통")  # 캐릭터 기분
     created_at = Column(DateTime, default=datetime.utcnow) # 캐릭터 생성 일자
+    character_voice = Column(String(50), default="672753b3-f689-4401-b535-dddebe822a50") # 캐릭터 보이스 ( 디폴트 : 페이몬 )
 
 # 메시지 모델
 class Message(Base):
@@ -67,6 +69,20 @@ class Message(Base):
     sender = Column(String) # 송신자 이름
     content = Column(Text) # 메시지 내용
     timestamp = Column(DateTime, default=datetime.utcnow) # 메시지 전송 시각
+
+
+# TTS 모델
+class Voice(Base):
+    __tablename__ = 'voice'
+
+    # UUID 기본 키
+    voice_idx = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # 목소리 파일 경로 (최대 255자)
+    voice_path = Column(String(255), nullable=False)
+    
+    # 목소리의 화자 이름 (최대 100자)
+    voice_speaker = Column(String(100), nullable=False)
 
 # 테이블 생성
 Base.metadata.create_all(bind=engine)

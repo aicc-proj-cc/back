@@ -1,8 +1,9 @@
 # 캐릭터 생성시, 첫 대사 1가지를 입력해야함.
 
 from fastapi import FastAPI, Depends, HTTPException # FastAPI 프레임워크 및 종속성 주입 도구
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
-from database import SessionLocal, ChatRoom, Message, Character, CharacterPrompt # DB 세션과 모델 가져오기
+from database import SessionLocal, ChatRoom, Message, Character, CharacterPrompt, Voice # DB 세션과 모델 가져오기
 from typing import List # 데이터 타입 리스트 지원
 from pydantic import BaseModel, Field # 데이터 검증 및 스키마 생성용 Pydantic 모델
 import uuid # 고유 ID 생성을 위한 UUID 라이브러리
@@ -16,6 +17,8 @@ import requests
 import pika
 import json
 import time
+import base64
+import os
 
 # FastAPI 앱 초기화
 app = FastAPI()
@@ -23,8 +26,11 @@ app = FastAPI()
 # RabbitMQ 연결 설정
 # RABBITMQ_HOST = "localhost"
 RABBITMQ_HOST = "222.112.27.120"
-REQUEST_QUEUE = "image_generation_requests"
-RESPONSE_QUEUE = "image_generation_responses"
+RABBITMQ_PORT = os.getenv("RBMQ_PORT")
+REQUEST_IMG_QUEUE = "image_generation_requests" # 이미지 요청
+RESPONSE_IMG_QUEUE = "image_generation_responses" #
+REQUEST_TTS_QUEUE = "tts_generation_requests" # TTS 요청
+RESPONSE_TTS_QUEUE = "tts_generation_responses" #
 
 # CORS 설정: 모든 도메인, 메서드, 헤더를 허용
 app.add_middleware(
@@ -122,17 +128,26 @@ class ImageRequest(BaseModel):
     guidance_scale: float = 12.0
     num_inference_steps: int = 60
 
+# TTS 생성 요청 스키마
+class TTSRequest(BaseModel):
+    # TTS 관련 파라미터들
+    # id: str
+    text: str
+    speaker: str = "paimon"
+    language: str
+    speed: float = 1.0
 
-def get_rabbitmq_channel():
+# image, tts 큐 분리하기위한 코드 추가 - 1230 민식 
+def get_rabbitmq_channel(req_que, res_que):
     """
     RabbitMQ 연결 및 채널 반환
     """
     connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host=RABBITMQ_HOST, heartbeat=6000)
+        pika.ConnectionParameters(host=RABBITMQ_HOST, port=RABBITMQ_PORT, heartbeat=6000)
     )
     channel = connection.channel()
-    channel.queue_declare(queue=REQUEST_QUEUE, durable=True)
-    channel.queue_declare(queue=RESPONSE_QUEUE, durable=True)
+    channel.queue_declare(queue=req_que, durable=True)
+    channel.queue_declare(queue=res_que, durable=True)
     return connection, channel
 
 
@@ -170,7 +185,8 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
             character_name=character.char_name,
             character_status_message=character.character_status_message,
             character_likes=character.favorability,
-            character_image="placeholder_image_url"  # 기본 이미지 URL 설정
+            character_image="placeholder_image_url",  # 기본 이미지 URL 설정
+            character_voice=character.voice_idx # 캐릭터 목소리 모델 - TTS
         )
         
         db.add(new_room)
@@ -236,12 +252,23 @@ def get_chat_room_info(room_id: str, db: Session = Depends(get_db)):
     chat_room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
     if not chat_room:
         raise HTTPException(status_code=404, detail="해당 채팅방을 찾을 수 없습니다.")
+    
+        
+    # voice 테이블에서 character_id와 연결된 TTS 정보 검색
+    voice_info = db.query(Voice).filter(Voice.voice_idx == chat_room.character_voice).first()
+    print("voice_info :", voice_info)
+    if not voice_info:
+        raise HTTPException(status_code=404, detail="TTS 정보를 찾을 수 없습니다.")
 
+    
     return {
         "room_id": chat_room.id,
         "character_name": chat_room.character_name,
         "character_emotion": chat_room.character_emotion,
-        "character_likes": chat_room.character_likes
+        "character_likes": chat_room.character_likes,
+        "character_voice": chat_room.character_voice,
+        "voice_path": voice_info.voice_path, # TTS 모델 경로
+        "voice_speaker": voice_info.voice_speaker, # TTS 스피커 이름
     }
 
 
@@ -494,13 +521,14 @@ def get_room_character(room_id: str, db: Session = Depends(get_db)):
     character = db.query(Character).filter(Character.character_index == room.character_id).first()
     if not character:
         raise HTTPException(status_code=404, detail="캐릭터를 찾을 수 없습니다.")
+
     
     # 캐릭터 정보를 반환
     return {
         "character_name": character.character_name,
         "character_prompt": character.character_prompt,
         "character_image": character.character_image,
-        "character_status_message": character.character_status_message,
+        "character_status_message": character.character_status_message
     }
 
 
@@ -513,7 +541,7 @@ def send_to_queue(request: ImageRequest):
     try:
         # RabbitMQ 연결
         # connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
-        connection, channel = get_rabbitmq_channel()
+        connection, channel = get_rabbitmq_channel(REQUEST_IMG_QUEUE, RESPONSE_IMG_QUEUE)
         request_id = str(uuid.uuid4())
 
         # 요청 메시지 작성
@@ -530,7 +558,7 @@ def send_to_queue(request: ImageRequest):
         # 메시지를 요청 큐에 추가
         channel.basic_publish(
             exchange="",
-            routing_key=REQUEST_QUEUE,
+            routing_key=REQUEST_IMG_QUEUE,
             body=json.dumps(message),
             properties=pika.BasicProperties(delivery_mode=1),
         )
@@ -538,7 +566,7 @@ def send_to_queue(request: ImageRequest):
 
         # 응답 큐에서 결과 대기
         for _ in range(6000):  # 최대 600초 대기 ( 100분 )
-            method, properties, body = channel.basic_get(RESPONSE_QUEUE, auto_ack=True)
+            method, properties, body = channel.basic_get(RESPONSE_IMG_QUEUE, auto_ack=True)
             if body:
                 response = json.loads(body)
                 if response["id"] == request_id:
@@ -550,7 +578,89 @@ def send_to_queue(request: ImageRequest):
         raise HTTPException(status_code=504, detail="응답 시간 초과")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# 
+# TTS 생성 요청 API
+@app.post("/generate-tts/")
+def send_to_queue(request: TTSRequest):
+    try:
+        connection, channel = get_rabbitmq_channel(REQUEST_TTS_QUEUE, RESPONSE_TTS_QUEUE)
+        request_id = str(uuid.uuid4())
+        message = {
+            "id": request_id,
+            "text": request.text,
+            "speaker": request.speaker,
+            "language": request.language,
+            "speed": request.speed,
+        }
+
+        channel.basic_publish(
+            exchange="",
+            routing_key=REQUEST_TTS_QUEUE,
+            body=json.dumps(message),
+            properties=pika.BasicProperties(delivery_mode=1),
+        )
+
+        for _ in range(6000):  # 최대 600초 대기
+            method, properties, body = channel.basic_get(RESPONSE_TTS_QUEUE, auto_ack=True)
+            if body:
+                response = json.loads(body)
+                if response["id"] == request_id:
+                    connection.close()
+                    if response["status"] == "success":
+                        audio_base64 = response["audio_base64"]
+                        # print("audio_base64 ", audio_base64)
+                        audio_data = base64.b64decode(audio_base64)
+
+                        output_path = f"temp_audio/{request_id}.wav"
+                        with open(output_path, "wb") as f:
+                            f.write(audio_data)
+
+                        return FileResponse(
+                            path=output_path,
+                            media_type="audio/wav",
+                            filename="output_audio.wav"
+                        )
+                    else:
+                        raise HTTPException(status_code=500, detail=response["error"])
+
+        connection.close()
+        raise HTTPException(status_code=504, detail="응답 시간 초과")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# TTS 모델 정보 조회 API
+@app.get("/api/ttsmodel/{room_id}")
+def get_tts_model(room_id: str, db: Session = Depends(get_db)):
+    """
+    특정 채팅방에 연결된 캐릭터 및 TTS 모델 정보를 반환하는 API 엔드포인트.
+    """
+    # 채팅방 ID를 기준으로 데이터베이스에서 채팅방 검색
+    room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
     
+    # 채팅방에 연결된 캐릭터 검색
+    character = db.query(Character).filter(Character.character_index == room.character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail="캐릭터를 찾을 수 없습니다.")
+    
+    # `voice` 테이블에서 character_id와 연결된 TTS 정보 검색
+    voice_info = db.query(Voice).filter(Voice.voice_idx == room.character_voice).first()
+    if not voice_info:
+        raise HTTPException(status_code=404, detail="TTS 정보를 찾을 수 없습니다.")
+    
+    # 캐릭터 및 TTS 정보를 반환
+    return {
+        "character_name": character.character_name,
+        "character_prompt": character.character_prompt,
+        "character_image": character.character_image,
+        "character_status_message": character.character_status_message,
+        "voice_path": voice_info.voice_path,
+        "voice_speaker": voice_info.voice_speaker,
+    }
+
 
 
 # uvicorn main:app --reload --log-level debug --port 8000
