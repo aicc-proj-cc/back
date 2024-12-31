@@ -1,9 +1,11 @@
 # 캐릭터 생성시, 첫 대사 1가지를 입력해야함.
 
-from fastapi import FastAPI, Depends, HTTPException # FastAPI 프레임워크 및 종속성 주입 도구
+from fastapi import FastAPI, Depends, HTTPException, APIRouter # FastAPI 프레임워크 및 종속성 주입 도구
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
-from database import SessionLocal, ChatRoom, Message, Character, CharacterPrompt, Voice # DB 세션과 모델 가져오기
+from database import SessionLocal, ChatRoom, Message, Character, CharacterPrompt, Voice
+
+ # DB 세션과 모델 가져오기
 from typing import List # 데이터 타입 리스트 지원
 from pydantic import BaseModel, Field # 데이터 검증 및 스키마 생성용 Pydantic 모델
 import uuid # 고유 ID 생성을 위한 UUID 라이브러리
@@ -20,12 +22,16 @@ import time
 import base64
 import os
 
+import user
+
 # FastAPI 앱 초기화
 app = FastAPI()
 
+app.include_router(user.router)
+
 # RabbitMQ 연결 설정
 # RABBITMQ_HOST = "localhost"
-RABBITMQ_HOST = "222.112.27.120"
+RABBITMQ_HOST = "222.112.27.104"
 RABBITMQ_PORT = os.getenv("RBMQ_PORT")
 REQUEST_IMG_QUEUE = "image_generation_requests" # 이미지 요청
 RESPONSE_IMG_QUEUE = "image_generation_responses" #
@@ -662,5 +668,10 @@ def get_tts_model(room_id: str, db: Session = Depends(get_db)):
     }
 
 
+# app.include_router(user_router, tags=["users"])
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
 
 # uvicorn main:app --reload --log-level debug --port 8000

@@ -84,5 +84,17 @@ class Voice(Base):
     # 목소리의 화자 이름 (최대 100자)
     voice_speaker = Column(String(100), nullable=False)
 
+# User 모델 정의
+class User(Base):
+    __tablename__ = "users"
+
+    user_idx = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, unique=True, nullable=False)
+    nickname = Column(String, nullable=False)
+    password = Column(String, nullable=False)
+    profile_picture = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # 테이블 생성
 Base.metadata.create_all(bind=engine)
