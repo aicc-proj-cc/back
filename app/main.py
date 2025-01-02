@@ -56,6 +56,7 @@ app.add_middleware(
     allow_credentials=True, # 자격 증명 허용 (쿠키 등)
     allow_methods=["*"], # 모든 HTTP 메서드 허용 (GET, POST 등)
     allow_headers=["*"], # 모든 HTTP 헤더 허용
+    expose_headers=["*"]
 )
 
 
@@ -427,62 +428,79 @@ def query_langchain(room_id: str, message: MessageSchema, db: Session = Depends(
 
 
 
+from fastapi import File, UploadFile, Form
+
 @app.post("/api/characters/", response_model=CharacterResponseSchema)
-def create_character(character: CreateCharacterSchema, db: Session = Depends(get_db)):
-    import json
+async def create_character(
+    character_image: UploadFile = File(...),
+    character_data: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        print("Received character data:", character_data)  # 디버깅용 로그
+        character_dict = json.loads(character_data)
+        character = CreateCharacterSchema(**character_dict)
 
-    # 새 캐릭터 객체 생성
-    new_character = Character(
-        user_idx=character.user_idx,
-        field_idx=character.field_idx,
-        voice_idx=character.voice_idx,
-        char_name=character.char_name,
-        char_description=character.char_description,
-        character_status_message=character.character_status_message,
-        favorability=character.favorability,
-    )
+        # 새 캐릭터 객체 생성
+        new_character = Character(
+            user_idx=character.user_idx,
+            field_idx=character.field_idx,
+            voice_idx=character.voice_idx,
+            char_name=character.char_name,
+            char_description=character.char_description,
+            character_status_message=character.character_status_message,
+            favorability=character.favorability,
+        )
 
-    db.add(new_character)
-    db.commit()
-    db.refresh(new_character)
+        db.add(new_character)
+        db.commit()
+        db.refresh(new_character)
 
-    # 딕셔너리를 직접 문자열로 변환
-    appearance_str = json.dumps(character.character_appearance['description'] if isinstance(character.character_appearance, dict) else character.character_appearance, 
-                              ensure_ascii=False)
-    personality_str = json.dumps(character.character_personality['description'] if isinstance(character.character_personality, dict) else character.character_personality, 
-                               ensure_ascii=False)
-    background_str = json.dumps(character.character_background['description'] if isinstance(character.character_background, dict) else character.character_background, 
-                              ensure_ascii=False)
-    speech_style_str = json.dumps(character.character_speech_style['description'] if isinstance(character.character_speech_style, dict) else character.character_speech_style, 
-                                ensure_ascii=False)
-    
-    # 캐릭터 프롬프트 생성
-    new_prompt = CharacterPrompt(
-        char_idx=new_character.char_idx,
-        character_appearance=appearance_str,
-        character_personality=personality_str,
-        character_background=background_str,
-        character_speech_style=speech_style_str,
-        example_dialogues=[json.dumps(dialogue, ensure_ascii=False) for dialogue in character.example_dialogues],
-    )
+        def extract_description(data):
+            """데이터에서 description 값을 추출하는 헬퍼 함수"""
+            if isinstance(data, dict):
+                return data.get('description', '')
+            try:
+                parsed = json.loads(data) if isinstance(data, str) else data
+                return parsed.get('description', str(data))
+            except (json.JSONDecodeError, AttributeError):
+                return str(data)
 
-    db.add(new_prompt)
-    db.commit()
+        # 각 필드의 description 값을 추출하여 저장
+        appearance_str = extract_description(character.character_appearance)
+        personality_str = extract_description(character.character_personality)
+        background_str = extract_description(character.character_background)
+        speech_style_str = extract_description(character.character_speech_style)
+        
+        # 캐릭터 프롬프트 생성
+        new_prompt = CharacterPrompt(
+            char_idx=new_character.char_idx,
+            character_appearance=appearance_str,
+            character_personality=personality_str,
+            character_background=background_str,
+            character_speech_style=speech_style_str,
+            example_dialogues=[json.dumps(dialogue, ensure_ascii=False) for dialogue in character.example_dialogues],
+        )
 
-    # 응답 형식으로 반환
-    return CharacterResponseSchema(
-        char_idx=new_character.char_idx,
-        char_name=new_character.char_name,
-        char_description=new_character.char_description,
-        character_status_message=new_character.character_status_message,
-        created_at=new_character.created_at.isoformat(),
-        favorability=new_character.favorability,
-        character_appearance={'description': appearance_str},
-        character_personality={'description': personality_str},
-        character_background={'description': background_str},
-        character_speech_style={'description': speech_style_str},
-        example_dialogues=[json.loads(dialogue) for dialogue in new_prompt.example_dialogues],
-    )
+        db.add(new_prompt)
+        db.commit()
+
+        return CharacterResponseSchema(
+            char_idx=new_character.char_idx,
+            char_name=new_character.char_name,
+            char_description=new_character.char_description,
+            character_status_message=new_character.character_status_message,
+            created_at=new_character.created_at.isoformat(),
+            favorability=new_character.favorability,
+            character_appearance={'description': appearance_str},
+            character_personality={'description': personality_str},
+            character_background={'description': background_str},
+            character_speech_style={'description': speech_style_str},
+            example_dialogues=[json.loads(dialogue) for dialogue in new_prompt.example_dialogues],
+        )
+    except Exception as e:
+        print(f"Error in create_character: {str(e)}")  # 디버깅용 로그
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # 캐릭터 목록 조회 API
@@ -687,6 +705,11 @@ def get_tts_model(room_id: str, db: Session = Depends(get_db)):
         "voice_path": voice_info.voice_path,
         "voice_speaker": voice_info.voice_speaker,
     }
+
+@app.get("/api/voices/")
+def get_voices(db: Session = Depends(get_db)):
+    voices = db.query(Voice).all()
+    return [{"voice_idx": str(voice.voice_idx), "voice_speaker": voice.voice_speaker} for voice in voices]
 
 
 # app.include_router(user_router, tags=["users"])
