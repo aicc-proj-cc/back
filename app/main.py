@@ -24,12 +24,17 @@ import os
 
 import user
 import wordcloud_router
+import follow
+import search
+
 
 # FastAPI 앱 초기화
 app = FastAPI()
 
 app.include_router(user.router)
 app.include_router(wordcloud_router.router, prefix="/api", tags=["WordCloud"])
+app.include_router(follow.router, tags=["Follow"])
+app.include_router(search.router, tags=["Search"])
 
 # RabbitMQ 연결 설정
 # RABBITMQ_HOST = "localhost"

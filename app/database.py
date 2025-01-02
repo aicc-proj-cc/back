@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Boolean, ARRAY, JSON, UUID
+from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Boolean, ARRAY, JSON, UUID, PrimaryKeyConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
@@ -96,13 +96,13 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# class Follow(Base):
-#     __tablename__ = "follow"
+class Follow(Base):
+    __tablename__ = "follow"
 
-#     user_id = Column(String, ForeignKey("users.id"), nullable=False)
-#     character_id = Column(String(255), nullable=False)
+    user_idx = Column(Integer, ForeignKey('users.user_idx'), primary_key=True)  # users 테이블 참조
+    char_idx = Column(Integer, ForeignKey('characters.char_idx'), primary_key=True)  # characters 테이블 참조
 
-#     __table_args__ = (PrimaryKeyConstraint('user_id', 'character_id'),)
+    __table_args__ = (PrimaryKeyConstraint('user_idx', 'char_idx'),)
 
 # 테이블 생성
 Base.metadata.create_all(bind=engine)
