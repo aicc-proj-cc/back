@@ -23,11 +23,18 @@ import base64
 import os
 
 import user
+import wordcloud_router
+import follow
+import search
+
 
 # FastAPI 앱 초기화
 app = FastAPI()
 
 app.include_router(user.router)
+app.include_router(wordcloud_router.router, prefix="/api", tags=["WordCloud"])
+app.include_router(follow.router, tags=["Follow"])
+app.include_router(search.router, tags=["Search"])
 
 # RabbitMQ 연결 설정
 # 배포용 PC 에 rabbitMQ 서버 및 GPU서버 세팅 완료 - 250102 민식 
@@ -65,6 +72,9 @@ def get_db():
 
 # ====== Pydantic 스키마 ======
 ## 스키마 사용 이유
+
+
+
 
 
 # 채팅방 생성 요청 스키마
