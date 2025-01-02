@@ -8,3 +8,5 @@ openai
 psycopg2
 langchain_openai
 pika
+python-jose
+python-multipart
