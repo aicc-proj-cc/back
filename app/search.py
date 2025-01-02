@@ -51,3 +51,23 @@ def get_character_by_index(character_idx: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"캐릭터 '{character_idx}'를 찾을 수 없습니다.")
 
     return {"id": character[0], "name": character[1], "description": character[2]}
+
+
+@router.get("/api/characters/search", response_model=list)
+def search_characters(query: str, db: Session = Depends(get_db)):
+    """
+    캐릭터 이름과 설명으로 검색해서 목록을 반환하는 API.
+    """
+    # 캐릭터 이름 또는 설명에 검색어가 포함된 캐릭터 찾기
+    characters = db.query(Character).filter(
+        (Character.char_name.like(f"%{query}%")) | 
+        (Character.char_description.like(f"%{query}%"))
+    ).all()
+
+    if not characters:
+        raise HTTPException(status_code=404, detail="검색 결과가 없습니다.")
+
+    return [
+        {"id": char.char_idx, "name": char.char_name, "description": char.char_description}
+        for char in characters
+    ]
