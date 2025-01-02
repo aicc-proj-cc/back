@@ -63,3 +63,30 @@ INSERT INTO characters (
 
 -- 캐릭터 챗봇 데이터 조회 예제
 SELECT * FROM characters WHERE is_active = TRUE;
+
+
+
+-- CREATE TABLE voice (
+--     voice_idx UUID DEFAULT gen_random_uuid() PRIMARY KEY, -- UUID를 기본 키로 설정, 자동 생성
+--     voice_path VARCHAR(255) NOT NULL, -- 목소리 경로, 최대 255글자
+--     voice_speaker VARCHAR(100) NOT NULL -- 캐릭터 이름, 최대 100글자
+-- );
+
+
+-- DROP TABLE messages;
+-- DROP TABLE chat_rooms;
+-- DROP TABLE char_prompts;
+-- DROP TABLE characters;
+
+-- CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- INSERT INTO voice (voice_idx, voice_path, voice_speaker)
+-- VALUES (gen_random_uuid(), './GENSHIN_VITS_MODEL/G_latest.pth', 'ganyu');
+
+
+SELECT * from voice
+
+SELECT * from characters
+SELECT * from chat_rooms
+
+SELECT * from char_prompts

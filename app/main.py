@@ -30,9 +30,13 @@ app = FastAPI()
 app.include_router(user.router)
 
 # RabbitMQ 연결 설정
-# RABBITMQ_HOST = "localhost"
-RABBITMQ_HOST = "222.112.27.104"
+# 배포용 PC 에 rabbitMQ 서버 및 GPU서버 세팅 완료 - 250102 민식 
+# .env 파일 수정후 사용 (슬랙 공지 참고)
+RABBITMQ_HOST = os.getenv("RBMQ_HOST")
 RABBITMQ_PORT = os.getenv("RBMQ_PORT")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")  # RabbitMQ 사용자 (기본값: guest)
+RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")  # RabbitMQ 비밀번호 (기본값: guest)
+
 REQUEST_IMG_QUEUE = "image_generation_requests" # 이미지 요청
 RESPONSE_IMG_QUEUE = "image_generation_responses" #
 REQUEST_TTS_QUEUE = "tts_generation_requests" # TTS 요청
@@ -148,8 +152,15 @@ def get_rabbitmq_channel(req_que, res_que):
     """
     RabbitMQ 연결 및 채널 반환
     """
+
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)  # ID와 PW 설정
+
     connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host=RABBITMQ_HOST, port=RABBITMQ_PORT, heartbeat=6000)
+        pika.ConnectionParameters(
+            host=RABBITMQ_HOST, 
+            port=RABBITMQ_PORT, 
+            credentials=credentials,
+            heartbeat=6000)
     )
     channel = connection.channel()
     channel.queue_declare(queue=req_que, durable=True)

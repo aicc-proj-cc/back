@@ -12,7 +12,7 @@ git clone
 - 4. back 디렉토리로 이동  
 cd back
 
-- 5. .env 파일 설정 ( env_exam.txt 파일 참고 )
+- 5. .env 파일 설정 ( 슬랙 공지 참고 )
 
 - 6. 필수 라이브러리 설치  
 pip install -r requirements.txt
