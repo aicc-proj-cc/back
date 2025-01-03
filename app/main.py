@@ -11,9 +11,11 @@ from pydantic import BaseModel, Field # 데이터 검증 및 스키마 생성용
 import uuid # 고유 ID 생성을 위한 UUID 라이브러리
 from datetime import datetime # 날짜 및 시간 처리
 from fastapi.middleware.cors import CORSMiddleware # CORS 설정용 미들웨어
-
+import re
 import websockets
 import asyncio
+
+
 # from auth import verify_token
 
 # RabbitMQ 파트
@@ -516,23 +518,33 @@ async def create_character(
         print(f"Error in create_character: {str(e)}")  # 디버깅용 로그
         raise HTTPException(status_code=500, detail=str(e))
 
+def clean_json_string(json_string):
+    if not json_string:
+        return json_string
+    return re.sub(r'[\x00-\x1F\x7F]', '', json_string)
 
 # 캐릭터 목록 조회 API
 @app.get("/api/characters/", response_model=List[CharacterResponseSchema])
 def get_characters(db: Session = Depends(get_db)):
     characters = db.query(Character).filter(Character.is_active == True).all()
+
     results = []
     for char in characters:
         prompt = db.query(CharacterPrompt).filter(CharacterPrompt.char_idx == char.char_idx).first()
         if prompt:
             # JSON 문자열을 객체로 변환하고 description 키로 감싸기
-            character_appearance = {"description": json.loads(prompt.character_appearance)} if prompt.character_appearance else None
-            character_personality = {"description": json.loads(prompt.character_personality)} if prompt.character_personality else None
-            character_background = {"description": json.loads(prompt.character_background)} if prompt.character_background else None
-            character_speech_style = {"description": json.loads(prompt.character_speech_style)} if prompt.character_speech_style else None
-            example_dialogues = [json.loads(dialogue) if dialogue else None for dialogue in prompt.example_dialogues] if prompt.example_dialogues else None
+            character_appearance = {"description": json.loads(clean_json_string(prompt.character_appearance))} if prompt.character_appearance else {"description": ""}
+            character_personality = {"description": json.loads(clean_json_string(prompt.character_personality))} if prompt.character_personality else {"description": ""}
+            character_background = {"description": json.loads(clean_json_string(prompt.character_background))} if prompt.character_background else {"description": ""}
+            character_speech_style = {"description": json.loads(clean_json_string(prompt.character_speech_style))} if prompt.character_speech_style else {"description": ""}
+            example_dialogues = [json.loads(clean_json_string(dialogue)) if dialogue else {} for dialogue in prompt.example_dialogues] if prompt.example_dialogues else []
         else:
-            character_appearance = character_personality = character_background = character_speech_style = example_dialogues = None
+            # 기본값 설정
+            character_appearance = {"description": ""}
+            character_personality = {"description": ""}
+            character_background = {"description": ""}
+            character_speech_style = {"description": ""}
+            example_dialogues = []
 
         results.append({
             "char_idx": char.char_idx,
@@ -548,6 +560,7 @@ def get_characters(db: Session = Depends(get_db)):
             "example_dialogues": example_dialogues,
         })
     return results
+
 
 # 캐릭터 삭제 API
 @app.delete("/api/characters/{char_idx}")

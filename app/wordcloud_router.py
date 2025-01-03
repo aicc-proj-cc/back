@@ -62,7 +62,7 @@ def upload_image(file: UploadFile = File(...)):
         print(f"파일 업로드 처리 중 오류: {e}")  # 디버깅용 로그
         raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
 
-@router.get("/api/wordcloud", response_class=FileResponse)
+@router.get("/wordcloud", response_class=FileResponse)
 def generate_wordcloud(db: Session = Depends(get_db)):
     try:
         characters = db.query(Character).all()
@@ -70,7 +70,10 @@ def generate_wordcloud(db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="캐릭터 데이터가 없습니다.")
 
         word_frequencies = {character.char_name: character.follows for character in characters}
-        font_path = "C:\\Windows\\Fonts\\malgun.ttf"
+        font_path = "C:\\Windows\\Fonts\\malgun.ttf"  # Windows
+        if not os.path.exists(font_path):
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # Linux
+
         if not os.path.exists(font_path):
             raise HTTPException(status_code=500, detail="폰트 파일이 없습니다.")
 
@@ -84,4 +87,3 @@ def generate_wordcloud(db: Session = Depends(get_db)):
         return FileResponse(output_path, media_type="image/png", filename="wordcloud.png")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
-

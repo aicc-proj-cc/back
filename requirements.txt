@@ -10,3 +10,4 @@ langchain_openai
 pika
 python-jose
 python-multipart
+wordcloud
