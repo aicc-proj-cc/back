@@ -12,7 +12,8 @@ import uuid # 고유 ID 생성을 위한 UUID 라이브러리
 from datetime import datetime # 날짜 및 시간 처리
 from fastapi.middleware.cors import CORSMiddleware # CORS 설정용 미들웨어
 
-import requests
+import websockets
+import asyncio
 # from auth import verify_token
 
 # RabbitMQ 파트
@@ -302,6 +303,7 @@ def get_chat_room_info(room_id: str, db: Session = Depends(get_db)):
 
 # 채팅 전송 및 캐릭터 응답 - LangChain 서버 이용
 LANGCHAIN_SERVER_URL = "http://localhost:8001"  # LangChain 서버 URL
+WS_SERVER_URL = "ws://localhost:8001"  # LangChain 서버 URL
 
 def get_chat_history(db: Session, room_id: str, limit: int = 10) -> str:
     """
@@ -321,8 +323,31 @@ def get_chat_history(db: Session, room_id: str, limit: int = 10) -> str:
     
     return history
 
+async def send_to_langchain(request_data: dict, room_id: str):
+    """
+    LangChain WebSocket 서버에 데이터를 전송하고 응답을 반환.
+    """
+    try:
+        uri = f"ws://localhost:8001/ws/generate/?room_id={room_id}"
+        async with websockets.connect(uri) as websocket:
+            # 요청 데이터 전송
+            await websocket.send(json.dumps(request_data))
+            
+            # 서버 응답 수신
+            response = await websocket.recv()
+            return json.loads(response)
+    except asyncio.TimeoutError:
+        print("WebSocket 응답 시간이 초과되었습니다.")
+        raise HTTPException(status_code=504, detail="LangChain 서버 응답 시간 초과.")
+    except websockets.exceptions.ConnectionClosedError as e:
+        print(f"WebSocket closed with error: {str(e)}")
+        raise HTTPException(status_code=500, detail="WebSocket 연결이 닫혔습니다.")
+    except Exception as e:
+        print(f"Error in send_to_langchain: {str(e)}")
+        raise HTTPException(status_code=500, detail="LangChain 서버와 통신 중 오류가 발생했습니다.")
+
 @app.post("/api/chat/{room_id}")
-def query_langchain(room_id: str, message: MessageSchema, db: Session = Depends(get_db)):
+async def query_langchain(room_id: str, message: MessageSchema, db: Session = Depends(get_db)):
     """
     LangChain 서버에 요청을 보내고 응답을 처리합니다.
     """
@@ -381,19 +406,8 @@ def query_langchain(room_id: str, message: MessageSchema, db: Session = Depends(
 
         print("Sending request to LangChain:", request_data)  # 디버깅용
 
-        # LangChain 서버로 요청 보내기
-        bot_response = requests.post(
-            f"{LANGCHAIN_SERVER_URL}/generate/",
-            json=request_data
-        )
-
-        if bot_response.status_code != 200:
-            print("LangChain server error:", bot_response.text)  # 디버깅용
-            raise HTTPException(status_code=bot_response.status_code, detail="LangChain 서버 요청 실패")
-
-        # LangChain 서버 응답 처리
-        response_data = bot_response.json()
-        print("LangChain response:", response_data)  # 디버깅용
+        # LangChain 서버와 WebSocket 통신
+        response_data = await send_to_langchain(request_data, room_id)
 
         bot_response_text = response_data.get("text", "openai_api 에러가 발생했습니다.")
         predicted_emotion = response_data.get("emotion", "Neutral")

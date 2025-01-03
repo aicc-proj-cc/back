@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Boolean, ARRAY, JSON, UUID, PrimaryKeyConstraint
+from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Boolean, ARRAY, JSON, UUID, PrimaryKeyConstraint, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
@@ -103,6 +103,16 @@ class Follow(Base):
     char_idx = Column(Integer, ForeignKey('characters.char_idx'), primary_key=True)  # characters 테이블 참조
 
     __table_args__ = (PrimaryKeyConstraint('user_idx', 'char_idx'),)
+
+# ChatLogs 테이블
+class ChatLog(Base):
+    __tablename__ = "chat_logs"
+
+    session_id = Column(String(50), primary_key=True)
+    chat_id = Column(String(50), ForeignKey("chat_rooms.id"), nullable=False)
+    log = Column(Text, nullable=False)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
 
 # 테이블 생성
 Base.metadata.create_all(bind=engine)
