@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
 
-from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice
+from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice, ChatLog, Field as DBField
 
  # DB 세션과 모델 가져오기
 from typing import List, Optional # 데이터 타입 리스트 지원
@@ -134,7 +134,7 @@ class CharacterResponseSchema(BaseModel):
     char_name: str
     char_description: str
     created_at: str
-    nickname: dict
+    nicknames: dict
     character_appearance: dict
     character_personality: dict
     character_background: dict
@@ -817,7 +817,18 @@ def get_voices(db: Session = Depends(get_db)):
     return [{"voice_idx": str(voice.voice_idx), "voice_speaker": voice.voice_speaker} for voice in voices]
 
 
-# app.include_router(user_router, tags=["users"])
+# 필드 항목 가져오기 API
+@app.get("/api/fields/")
+def get_fields(db: Session = Depends(get_db)):
+    """
+    필드 항목을 반환하는 API 엔드포인트.
+    """
+    try:
+        fields = db.query(DBField).all()  # DBField로 변경
+        return [{"field_idx": field.field_idx, "field_category": field.field_category} for field in fields]
+    except Exception as e:
+        print(f"Error in get_fields: {str(e)}")  # 에러 로깅 추가
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 async def root():
