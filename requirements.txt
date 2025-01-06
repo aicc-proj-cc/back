@@ -11,3 +11,4 @@ pika
 python-jose
 python-multipart
 wordcloud
+websockets
