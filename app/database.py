@@ -1,118 +1,183 @@
-from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Boolean, ARRAY, JSON, UUID, PrimaryKeyConstraint, text
+from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Boolean, JSON, ARRAY, text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 from dotenv import load_dotenv
-import uuid
 import os
 
+# .env 파일 로드
 load_dotenv()
 
 # PostgreSQL 연결 URL
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# SQLAlchemy 설정
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# 캐릭터 모델
-class Character(Base):
-    __tablename__ = "characters"
-
-    char_idx = Column(Integer, primary_key=True, autoincrement=True)  # 캐릭터 인덱스
-    user_idx = Column(String(50), nullable=False)  # 회원 인덱스 (임시로 String 사용)
-    field_idx = Column(String(50), nullable=False)  # 필드 인덱스 (임시로 String 사용)
-    voice_idx = Column(String(50), nullable=False)  # 목소리 인덱스 (임시로 String 사용)
-    char_name = Column(String(255), nullable=False)  # 캐릭터 이름
-    char_description = Column(Text, nullable=False)  # 캐릭터 한 줄 소개
-    character_status_message = Column(ARRAY(Text), nullable=True)  # 캐릭터 상태 메시지 (리스트 형식)
-    created_at = Column(DateTime, default=datetime.utcnow)  # 캐릭터 생성 일자
-    follows = Column(Integer, default=0)  # 친구 숫자
-    is_active = Column(Boolean, default=True)  # 활성화 여부
-    favorability = Column(Integer, default=0)  # 호감도
-    current_prompt = Column(Text)  # 현재 프롬프트
-
-# 캐릭터 프롬프트 모델
-class CharacterPrompt(Base):
-    __tablename__ = "char_prompts"
-
-    char_prompt_id = Column(Integer, primary_key=True, autoincrement=True)
-    char_idx = Column(Integer, ForeignKey("characters.char_idx"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    character_appearance = Column(Text, nullable=False)  # JSON을 Text로 변경
-    character_personality = Column(Text, nullable=False)  # JSON을 Text로 변경
-    character_background = Column(Text, nullable=False)  # JSON을 Text로 변경
-    character_speech_style = Column(Text, nullable=False)  # JSON을 Text로 변경
-    example_dialogues = Column(ARRAY(JSON), nullable=True)  # JSON을 Text로 변경
-
-# 채팅방 모델
-class ChatRoom(Base):
-    __tablename__ = "chat_rooms"
-
-    id = Column(String, primary_key=True) # 채팅방 고유 ID
-    character_prompt = Column(Text, nullable=False) # 캐릭터 프롬프트
-    character_id = Column(Integer, ForeignKey("characters.char_idx")) # 캐릭터 고유 ID (characters db 참조)
-    character_name = Column(String(255), nullable=False) # 캐릭터 이름
-    character_image = Column(Text, nullable=False) # 캐릭터 이미지
-    character_status_message = Column(ARRAY(String), nullable=False)  # 캐릭터 상태 메시지 (리스트 형식)
-    character_likes = Column(Integer, nullable=False)  # 캐릭터 호감도
-    character_emotion = Column(String, default="보통")  # 캐릭터 기분
-    created_at = Column(DateTime, default=datetime.utcnow) # 캐릭터 생성 일자
-    character_voice = Column(String(50), default="672753b3-f689-4401-b535-dddebe822a50") # 캐릭터 보이스 ( 디폴트 : 페이몬 )
-
-# 메시지 모델
-class Message(Base):
-    __tablename__ = "messages"
-
-    id = Column(String, primary_key=True) # 메시지 고유 ID
-    room_id = Column(String, ForeignKey("chat_rooms.id")) # 채팅방 ID (chat_rooms db 참조)
-    sender = Column(String) # 송신자 이름
-    content = Column(Text) # 메시지 내용
-    timestamp = Column(DateTime, default=datetime.utcnow) # 메시지 전송 시각
-
-
-# TTS 모델
-class Voice(Base):
-    __tablename__ = 'voice'
-
-    # UUID 기본 키
-    voice_idx = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    
-    # 목소리 파일 경로 (최대 255자)
-    voice_path = Column(String(255), nullable=False)
-    
-    # 목소리의 화자 이름 (최대 100자)
-    voice_speaker = Column(String(100), nullable=False)
-
-# User 모델 정의
+# Users 테이블
 class User(Base):
     __tablename__ = "users"
 
     user_idx = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String, unique=True, nullable=False)
-    nickname = Column(String, nullable=False)
-    password = Column(String, nullable=False)
-    profile_picture = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    user_id = Column(String(100), nullable=False)
+    nickname = Column(String(100), nullable=False)
+    password = Column(String(255), nullable=False)
+    profile_img = Column(String(255), nullable=True)
+    is_active = Column(Boolean, server_default=text("true"), nullable=False)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
 
-class Follow(Base):
-    __tablename__ = "follow"
+# Characters 테이블
+class Character(Base):
+    __tablename__ = "characters"
 
-    user_idx = Column(Integer, ForeignKey('users.user_idx'), primary_key=True)  # users 테이블 참조
-    char_idx = Column(Integer, ForeignKey('characters.char_idx'), primary_key=True)  # characters 테이블 참조
+    char_idx = Column(Integer, primary_key=True, autoincrement=True)
+    character_owner = Column(Integer, ForeignKey("users.user_idx"), nullable=True)
+    field_idx = Column(Integer, ForeignKey("fields.field_idx"), nullable=False)
+    voice_idx = Column(String(50), ForeignKey("voice.voice_idx"), nullable=False)
+    char_name = Column(String(50), nullable=False)
+    char_description = Column(String(255), nullable=False)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+    is_active = Column(Boolean, server_default=text("true"), nullable=False)
+    nicknames = Column(
+        JSON,
+        nullable=False,
+        default={30: "stranger", 70: "friend", 100: "best friend"}
+    )
 
-    __table_args__ = (PrimaryKeyConstraint('user_idx', 'char_idx'),)
+# Scenario 테이블
+class Scenario(Base):
+    __tablename__ = "scenario"
+
+    scenario_id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(String(50), ForeignKey("chat_rooms.chat_id"), nullable=False)
+    scenario_title = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+    is_active = Column(Boolean, server_default=text("true"), nullable=False)
+
+# Fields 테이블
+class Field(Base):
+    __tablename__ = "fields"
+
+    field_idx = Column(Integer, primary_key=True, autoincrement=True)
+    field_category = Column(String(50), nullable=False)
+
+# Tags 테이블
+class Tag(Base):
+    __tablename__ = "tags"
+
+    tag_idx = Column(Integer, primary_key=True, autoincrement=True)
+    char_idx = Column(Integer, ForeignKey("characters.char_idx"), nullable=False)
+    tag_name = Column(String(50), nullable=False)
+    tag_description = Column(Text, nullable=True)
+    is_deleted = Column(Boolean, server_default=text("false"), nullable=False)
+
+# Voice 테이블
+class Voice(Base):
+    __tablename__ = "voice"
+
+    voice_idx = Column(String(50), primary_key=True)
+    voice_path = Column(String(255), nullable=False)
+    voice_speaker = Column(String(100), nullable=False)
 
 # ChatLogs 테이블
 class ChatLog(Base):
     __tablename__ = "chat_logs"
 
     session_id = Column(String(50), primary_key=True)
-    chat_id = Column(String(50), ForeignKey("chat_rooms.id"), nullable=False)
+    chat_id = Column(String(50), ForeignKey("chat_rooms.chat_id"), nullable=False)
     log = Column(Text, nullable=False)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+
+# Images 테이블
+class Image(Base):
+    __tablename__ = "images"
+
+    img_idx = Column(Integer, primary_key=True, autoincrement=True)
+    file_path = Column(String(255), nullable=False)
+
+# Chats 테이블
+class ChatRoom(Base):
+    __tablename__ = "chat_rooms"
+
+    chat_id = Column(String(50), primary_key=True)
+    user_idx = Column(Integer, ForeignKey("users.user_idx"), nullable=False)
+    char_prompt_id = Column(Integer, ForeignKey("char_prompts.char_prompt_id"), nullable=False)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+    is_active = Column(Boolean, server_default=text("true"), nullable=False)
+    favorability = Column(Integer, server_default=text("0"), nullable=False)
+    user_unique_name = Column(String(50), nullable=True)
+    user_introduction = Column(Text, nullable=True)
+
+# ImageMapping 테이블
+class ImageMapping(Base):
+    __tablename__ = "image_mapping"
+
+    char_idx = Column(Integer, ForeignKey("characters.char_idx"), primary_key=True, nullable=False)
+    img_idx = Column(Integer, ForeignKey("images.img_idx"), primary_key=True, nullable=False)
+    is_active = Column(Boolean, server_default=text("true"), nullable=False)
+
+# CharacterPrompts 테이블
+class CharacterPrompt(Base):
+    __tablename__ = "char_prompts"
+
+    char_prompt_id = Column(Integer, primary_key=True, autoincrement=True)
+    char_idx = Column(Integer, ForeignKey("characters.char_idx"), nullable=False)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+    character_appearance = Column(Text, nullable=False)
+    character_personality = Column(Text, nullable=False)
+    character_background = Column(Text, nullable=False)
+    character_speech_style = Column(Text, nullable=False)
+    example_dialogues = Column(ARRAY(Text), nullable=True)
+
+# GroupChats 테이블
+class GroupChat(Base):
+    __tablename__ = "group_chats"
+
+    group_chat_idx = Column(Integer, primary_key=True, autoincrement=True)
+    user_idx = Column(Integer, ForeignKey("users.user_idx"), nullable=True)
+    chat_title = Column(String(50), nullable=True)
+    chat_prompt = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=True)
+    is_deleted = Column(Boolean, server_default=text("false"), nullable=False)
+
+# ScenarioPrompts 테이블
+class ScenarioPrompt(Base):
+    __tablename__ = "scenario_prompts"
+
+    scenario_prompt_id = Column(Integer, primary_key=True, autoincrement=True)
+    scenario_id = Column(Integer, ForeignKey("scenario.scenario_id"), nullable=False)
+    prompt_text = Column(JSON, nullable=False)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+    updated_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+
+# Friends 테이블
+class Friend(Base):
+    __tablename__ = "friends"
+
+    friend_idx = Column(Integer, primary_key=True, autoincrement=True)
+    user_idx = Column(Integer, ForeignKey("users.user_idx"), nullable=False)
+    char_idx = Column(Integer, ForeignKey("characters.char_idx"), nullable=False)
+    is_active = Column(Boolean, server_default=text("true"), nullable=False)
+
+# SecretDiary 테이블
+class SecretDiary(Base):
+    __tablename__ = "secret_diary"
+
+    diary_idx = Column(Integer, primary_key=True, autoincrement=True)
+    sesseion_id = Column(String(50), ForeignKey("chat_logs.sesseion_id"), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+
+# GroupChatCharacters 테이블
+class GroupChatCharacter(Base):
+    __tablename__ = "gruop_chat_characters"
+
+    group_chars_idx = Column(Integer, primary_key=True, autoincrement=True)
+    group_chat_idx = Column(Integer, ForeignKey("group_chats.group_chat_idx"), nullable=False)
+    char_idx = Column(Integer, ForeignKey("characters.char_idx"), nullable=False)
 
 # 테이블 생성
 Base.metadata.create_all(bind=engine)

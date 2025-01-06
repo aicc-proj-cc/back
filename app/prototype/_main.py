@@ -3,7 +3,7 @@
 from fastapi import FastAPI, Depends, HTTPException # FastAPI 프레임워크 및 종속성 주입 도구
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
-from back.app._database import SessionLocal, ChatRoom, Message, Character # DB 세션과 모델 가져오기
+from database import SessionLocal, ChatRoom, Message, Character # DB 세션과 모델 가져오기
 from typing import List # 데이터 타입 리스트 지원
 from pydantic import BaseModel, Field # 데이터 검증 및 스키마 생성용 Pydantic 모델
 import uuid # 고유 ID 생성을 위한 UUID 라이브러리
