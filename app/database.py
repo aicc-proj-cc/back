@@ -40,15 +40,11 @@ class Character(Base):
     char_description = Column(String(255), nullable=False)
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
     is_active = Column(Boolean, server_default=text("true"), nullable=False)
-<<<<<<< HEAD
-    nicknames = Column(JSON, nullable=True)
-=======
     nicknames = Column(
         JSON,
         nullable=False,
         default={30: "stranger", 70: "friend", 100: "best friend"}
     )
->>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
 
 # Scenario 테이블
 class Scenario(Base):
@@ -171,21 +167,13 @@ class SecretDiary(Base):
     __tablename__ = "secret_diary"
 
     diary_idx = Column(Integer, primary_key=True, autoincrement=True)
-<<<<<<< HEAD
-    session_id = Column(String(50), ForeignKey("chat_logs.session_id"), nullable=False)
-=======
-    sesseion_id = Column(String(50), ForeignKey("chat_logs.sesseion_id"), nullable=False)
->>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+    session = Column(String(50), ForeignKey("chat_logs.sesseion_id"), nullable=False)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
 
 # GroupChatCharacters 테이블
 class GroupChatCharacter(Base):
-<<<<<<< HEAD
-    __tablename__ = "group_chat_characters"
-=======
     __tablename__ = "gruop_chat_characters"
->>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
 
     group_chars_idx = Column(Integer, primary_key=True, autoincrement=True)
     group_chat_idx = Column(Integer, ForeignKey("group_chats.group_chat_idx"), nullable=False)

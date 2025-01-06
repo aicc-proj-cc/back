@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
 from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice, ChatLog, Field as DBField
 
@@ -18,6 +19,13 @@ from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice
  # DB 세션과 모델 가져오기
 from typing import List, Optional # 데이터 타입 리스트 지원
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+
+from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice
+
+ # DB 세션과 모델 가져오기
+from typing import List, Optional # 데이터 타입 리스트 지원
+>>>>>>> refs/remotes/origin/main:app/main.py
 from pydantic import BaseModel # 데이터 검증 및 스키마 생성용 Pydantic 모델
 import uuid # 고유 ID 생성을 위한 UUID 라이브러리
 from datetime import datetime # 날짜 및 시간 처리
@@ -120,6 +128,7 @@ class CreateCharacterSchema(BaseModel):
     """
     캐릭터 등록을 위한 Pydantic 스키마.
     """
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
     user_idx: str
     field_idx: int
@@ -133,6 +142,8 @@ class CreateCharacterSchema(BaseModel):
     example_dialogues: List[dict]
     nicknames: dict
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
     character_owner: str
     field_idx: str
     voice_idx: str
@@ -144,7 +155,10 @@ class CreateCharacterSchema(BaseModel):
     character_background: dict
     character_speech_style: dict
     example_dialogues: Optional[List[dict]] = None
+<<<<<<< HEAD:app/main2.py
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
 
 # 캐릭터 응답 스키마
 class CharacterResponseSchema(BaseModel):
@@ -155,6 +169,7 @@ class CharacterResponseSchema(BaseModel):
     char_name: str
     char_description: str
     created_at: str
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
     character_appearance: str
     character_personality: str
@@ -163,13 +178,18 @@ class CharacterResponseSchema(BaseModel):
     example_dialogues: List[dict]
     nicknames: dict
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
     nickname: dict
     character_appearance: dict
     character_personality: dict
     character_background: dict
     character_speech_style: dict
     example_dialogues: Optional[List[dict]] = None
+<<<<<<< HEAD:app/main2.py
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
 
     class Config:
         orm_mode = True  # SQLAlchemy 객체 변환 지원
@@ -223,6 +243,7 @@ def get_rabbitmq_channel(req_que, res_que):
 @app.post("/api/chat-room/", response_model=dict)
 def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
     try:
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
         # 캐릭터 정보 가져오기
         character = db.query(Character).filter(
@@ -249,6 +270,8 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
             favorability=0
         )
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
         # 트랜잭션 시작
         with db.begin():
             # 각 캐릭터에 대한 최신 char_prompt_id를 가져오는 subquery
@@ -294,17 +317,23 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
             )
             
             db.add(new_room)
+<<<<<<< HEAD:app/main2.py
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
         
         # 트랜잭션 커밋 (with 블록 종료 시 자동으로 커밋됨)
         db.commit()
 
         return {
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
             "chat_id": new_room.chat_id,
             "char_name": character.char_name,
             "character_personality": prompt.character_personality
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
             "room_id": new_room.chat_id,
             "user_idx": new_room.user_idx,
             "character_idx": character.char_idx,
@@ -312,7 +341,10 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
             "created_at": new_room.created_at,
             "user_unique_name": new_room.user_unique_name,
             "user_introduction": new_room.user_introduction
+<<<<<<< HEAD:app/main2.py
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
         }
     except Exception as e:
         print(f"Error creating chat room: {str(e)}")
@@ -329,6 +361,7 @@ def get_chat_rooms(db: Session = Depends(get_db)):
     rooms = db.query(ChatRoom).all()
     result = []
     for room in rooms:
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
         # CharacterPrompt 및 Character 테이블과 연관된 데이터 가져오기
         character_prompt = db.query(CharacterPrompt).filter(CharacterPrompt.char_prompt_id == room.char_prompt_id).first()
@@ -378,6 +411,32 @@ def get_chat_rooms(db: Session = Depends(get_db)):
             })
     return result
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+        # 캐릭터 정보 가져오기
+        character_data = (
+            db.query(Character, CharacterPrompt)
+            .join(CharacterPrompt, CharacterPrompt.char_idx == Character.char_idx)
+            .join(ChatRoom, ChatRoom.char_prompt_id == CharacterPrompt.char_prompt_id)
+            .filter(
+                ChatRoom.chat_id == room.chat_id,
+                Character.is_active == True
+            )
+            .first()
+        )
+        character, prompt = character_data
+        if character:
+            result.append({
+                "room_id": room.chat_id,
+                "character_name": character.char_name,
+                "char_description": character.char_description,
+                "character_appearance": prompt.character_appearance,
+                "character_personality": prompt.character_personality,
+                "character_background": prompt.character_background,
+                "character_speech_style": prompt.character_speech_style,
+                "room_created_at": room.created_at,
+            })
+    return result
+>>>>>>> refs/remotes/origin/main:app/main.py
 
 # ----------------------------------------수정 필요----------------------------------------
 # 채팅 메시지 불러오기
@@ -587,6 +646,7 @@ async def create_character(
             character = CreateCharacterSchema(**character_dict)
             nickname = character.nickname or {30: "stranger", 70: "friend", 100: "best friend"}
 
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
         # 새 캐릭터 객체 생성
         new_character = Character(
@@ -598,6 +658,8 @@ async def create_character(
             nicknames=json.dumps(character.nicknames)
         )
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
             # 새 캐릭터 객체 생성
             new_character = Character(
                 user_idx=character.character_owner,
@@ -607,7 +669,10 @@ async def create_character(
                 char_description=character.char_description,
                 nicknames=nickname,  # 기본값 적용
             )
+<<<<<<< HEAD:app/main2.py
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
 
             db.add(new_character)
             db.flush()  # `new_character.char_idx`를 사용하기 위해 flush 실행
@@ -622,6 +687,7 @@ async def create_character(
                 except (json.JSONDecodeError, AttributeError):
                     return str(data)
 
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
         # 각 필드의 description 값을 추출하여 저장
         appearance_str = extract_description(character.character_appearance)
@@ -639,6 +705,8 @@ async def create_character(
             example_dialogues=[json.dumps(dialogue, ensure_ascii=False) for dialogue in character.example_dialogues],
         )
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
             # 각 필드의 description 값을 추출하여 저장
             appearance_str = extract_description(character.character_appearance)
             personality_str = extract_description(character.character_personality)
@@ -657,7 +725,10 @@ async def create_character(
                     if character.example_dialogues else None
                 ),
             )
+<<<<<<< HEAD:app/main2.py
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
 
             db.add(new_prompt)
 
@@ -669,6 +740,7 @@ async def create_character(
             char_name=new_character.char_name,
             char_description=new_character.char_description,
             created_at=new_character.created_at.isoformat(),
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
             character_appearance=new_prompt.character_appearance,
             character_personality=new_prompt.character_personality,
@@ -677,6 +749,8 @@ async def create_character(
             example_dialogues=[json.loads(dialogue) for dialogue in new_prompt.example_dialogues],
             nicknames=json.loads(new_character.nicknames)
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
             nickname=new_character.nicknames,
             character_appearance={'description': appearance_str},
             character_personality={'description': personality_str},
@@ -685,7 +759,10 @@ async def create_character(
             example_dialogues=[
                 json.loads(dialogue) for dialogue in new_prompt.example_dialogues
             ] if new_prompt.example_dialogues else None,
+<<<<<<< HEAD:app/main2.py
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
         )
     except Exception as e:
         print(f"Error in create_character: {str(e)}")  # 디버깅용 로그
@@ -700,9 +777,12 @@ def clean_json_string(json_string):
 # 캐릭터 목록 조회 API
 @app.get("/api/characters/", response_model=List[CharacterResponseSchema])
 def get_characters(db: Session = Depends(get_db)):
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
     characters = db.query(Character).filter(Character.is_active == True).all()
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
     # 각 캐릭터에 대한 최신 char_prompt_id를 가져오는 subquery
     subquery = (
         select(
@@ -712,6 +792,23 @@ def get_characters(db: Session = Depends(get_db)):
         .group_by(CharacterPrompt.char_idx)
         .subquery()
     )
+<<<<<<< HEAD:app/main2.py
+=======
+
+    # 캐릭터를 최신 프롬프트와 join하는 query
+    query = (
+        db.query(Character, CharacterPrompt)
+        .join(subquery, subquery.c.char_idx == Character.char_idx)
+        .join(
+            CharacterPrompt,
+            (CharacterPrompt.char_idx == subquery.c.char_idx) &
+            (CharacterPrompt.created_at == subquery.c.latest_created_at)
+        )
+        .filter(Character.is_active == True)  # is_active가 True인 캐릭터만 가져오기
+    )
+
+    characters = query.all()
+>>>>>>> refs/remotes/origin/main:app/main.py
 
     # 캐릭터를 최신 프롬프트와 join하는 query
     query = (
@@ -744,12 +841,15 @@ def get_characters(db: Session = Depends(get_db)):
             "char_name": char.char_name,
             "char_description": char.char_description,
             "created_at": char.created_at.isoformat(),
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
             "character_appearance": prompt.character_appearance if prompt else "",
             "character_personality": prompt.character_personality if prompt else "",
             "character_background": prompt.character_background if prompt else "",
             "character_speech_style": prompt.character_speech_style if prompt else "",
 =======
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
             "nickname": char.nickname,
             "character_appearance": character_appearance,
             "character_personality": character_personality,
@@ -784,6 +884,7 @@ def get_room_character(room_id: str, db: Session = Depends(get_db)):
     """
     특정 채팅방에 연결된 캐릭터 정보를 반환하는 API 엔드포인트.
     """
+<<<<<<< HEAD:app/main2.py
 <<<<<<< HEAD
     # 채팅방 ID를 기준으로 데이터베이스에서 채팅방 검색
     room = db.query(ChatRoom).filter(ChatRoom.chat_id == room_id).first()
@@ -813,6 +914,18 @@ def get_room_character(room_id: str, db: Session = Depends(get_db)):
             .first()
         )
 
+=======
+    try:
+        # 채팅방, 캐릭터 프롬프트, 캐릭터 정보를 가져오는 쿼리
+        chat_data = (
+            db.query(ChatRoom, CharacterPrompt, Character)
+            .join(CharacterPrompt, ChatRoom.char_prompt_id == CharacterPrompt.char_prompt_id)
+            .join(Character, CharacterPrompt.char_idx == Character.char_idx)
+            .filter(ChatRoom.chat_id == room_id)
+            .first()
+        )
+
+>>>>>>> refs/remotes/origin/main:app/main.py
         if not chat_data:
             raise HTTPException(status_code=404, detail="해당 채팅방 정보를 찾을 수 없습니다.")
 
@@ -839,7 +952,10 @@ def get_room_character(room_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Error fetching chat room info: {str(e)}")  # 에러 로깅
         raise HTTPException(status_code=500, detail=f"채팅방 정보를 가져오는 중 오류가 발생했습니다: {str(e)}")
+<<<<<<< HEAD:app/main2.py
 >>>>>>> e6927b170da19efa8c02f9956821d06383689aa7
+=======
+>>>>>>> refs/remotes/origin/main:app/main.py
 
 
 # 이미지 생성 요청 API
