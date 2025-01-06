@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 from jose import jwt, JWTError
-from database import SessionLocal, Follow, Character, User
+from database import SessionLocal, Friend, Character, User
 
 # .env 파일 로드
 load_dotenv()
@@ -55,15 +55,15 @@ async def add_character_to_user(
         )
 
     try:
-        existing_entry = db.query(Follow).filter(
-            Follow.user_idx == request.user_idx,
-            Follow.char_idx == request.char_idx
+        existing_entry = db.query(Friend).filter(
+            Friend.user_idx == request.user_idx,
+            Friend.char_idx == request.char_idx
         ).first()
 
         if existing_entry:
             raise HTTPException(status_code=400, detail="이미 추가된 캐릭터입니다.")
 
-        new_follow = Follow(user_idx=request.user_idx, char_idx=request.char_idx)
+        new_follow = Friend(user_idx=request.user_idx, char_idx=request.char_idx)
         db.add(new_follow)
         db.commit()
         return {"message": f"캐릭터 {request.char_idx}가 유저 {request.user_idx}에게 추가되었습니다."}
@@ -82,7 +82,7 @@ async def get_characters_for_user(
     특정 유저가 팔로우한 캐릭터 목록 반환.
     """
     try:
-        result = db.query(Follow).filter(Follow.user_idx == user_idx).all()
+        result = db.query(Friend).filter(Friend.user_idx == user_idx).all()
         char_idx = [row.char_idx for row in result]
 
         return {"user_id": user_idx, "characters": char_idx}

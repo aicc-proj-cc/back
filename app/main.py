@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
 
-from database import SessionLocal, ChatRoom, Message, Character, CharacterPrompt, Voice
+from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice
 
  # DB 세션과 모델 가져오기
 from typing import List, Optional # 데이터 타입 리스트 지원
@@ -354,7 +354,6 @@ def get_chat_history(db: Session, room_id: str, limit: int = 10) -> str:
     
     return history
 
-# ----------------------------------------수정 필요----------------------------------------
 async def send_to_langchain(request_data: dict, room_id: str):
     """
     LangChain WebSocket 서버에 데이터를 전송하고 응답을 반환.
@@ -378,6 +377,7 @@ async def send_to_langchain(request_data: dict, room_id: str):
         print(f"Error in send_to_langchain: {str(e)}")
         raise HTTPException(status_code=500, detail="LangChain 서버와 통신 중 오류가 발생했습니다.")
 
+# ----------------------------------------수정 필요----------------------------------------
 @app.post("/api/chat/{room_id}")
 async def query_langchain(room_id: str, message: MessageSchema, db: Session = Depends(get_db)):
     """
