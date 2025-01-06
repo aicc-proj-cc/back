@@ -43,8 +43,8 @@ class Character(Base):
     nicknames = Column(
         JSON,
         nullable=False,
-        default={30: "stranger", 70: "friend", 100: "best friend"}
-    )
+        default=lambda: {30: "stranger", 70: "friend", 100: "best friend"}
+)
 
 # Scenario 테이블
 class Scenario(Base):
@@ -173,7 +173,7 @@ class SecretDiary(Base):
 
 # GroupChatCharacters 테이블
 class GroupChatCharacter(Base):
-    __tablename__ = "gruop_chat_characters"
+    __tablename__ = "group_chat_characters"
 
     group_chars_idx = Column(Integer, primary_key=True, autoincrement=True)
     group_chat_idx = Column(Integer, ForeignKey("group_chats.group_chat_idx"), nullable=False)

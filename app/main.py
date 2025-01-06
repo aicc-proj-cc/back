@@ -113,16 +113,16 @@ class CreateCharacterSchema(BaseModel):
     """
     캐릭터 등록을 위한 Pydantic 스키마.
     """
-    character_owner: str
-    field_idx: str
+    character_owner: int
+    field_idx: int
     voice_idx: str
     char_name: str
     char_description: str
-    nickname: Optional[dict] = None
-    character_appearance: dict
-    character_personality: dict
-    character_background: dict
-    character_speech_style: dict
+    nicknames: Optional[dict] = {30: "stranger", 70: "friend", 100: "best friend"}
+    character_appearance: str
+    character_personality: str
+    character_background: str
+    character_speech_style: str
     example_dialogues: Optional[List[dict]] = None
 
 # 캐릭터 응답 스키마
@@ -135,10 +135,10 @@ class CharacterResponseSchema(BaseModel):
     char_description: str
     created_at: str
     nicknames: dict
-    character_appearance: dict
-    character_personality: dict
-    character_background: dict
-    character_speech_style: dict
+    character_appearance: str
+    character_personality: str
+    character_background: str
+    character_speech_style: str
     example_dialogues: Optional[List[dict]] = None
 
     class Config:
@@ -291,30 +291,30 @@ def get_chat_rooms(db: Session = Depends(get_db)):
             })
     return result
 
-# ----------------------------------------수정 필요----------------------------------------
+# ----------------------------------------확인 필요----------------------------------------
 # 채팅 메시지 불러오기
 @app.get("/api/chat/{room_id}")
 def get_chat_logs(room_id: str, db: Session = Depends(get_db)):
     """
     특정 채팅방의 메시지 로그를 반환하는 API 엔드포인트.
     """
-    logs = db.query(Message).filter(Message.room_id == room_id).all() # 채팅방 ID에 맞는 메시지 가져오기
-    return [{"sender": log.sender, "content": log.content, "timestamp": log.timestamp} for log in logs]
+    logs = db.query(ChatLog).filter(ChatLog.chat_id == room_id).all()
+    return [{"session_id": log.session_id, "log": log.log, "start_time": log.start_time, "end_time": log.end_time} for log in logs]
 
-# ----------------------------------------수정 필요----------------------------------------
+# ----------------------------------------확인 필요----------------------------------------
 # 채팅방에서 캐릭터 정보 불러오기
 @app.get("/api/chat-room-info/{room_id}")
 def get_chat_room_info(room_id: str, db: Session = Depends(get_db)):
     """
     특정 채팅방의 정보를 반환하는 API 엔드포인트.
     """
-    chat_room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
+    chat_room = db.query(ChatRoom).filter(ChatRoom.chat_id == room_id).first()
     if not chat_room:
         raise HTTPException(status_code=404, detail="해당 채팅방을 찾을 수 없습니다.")
     
         
     # voice 테이블에서 character_id와 연결된 TTS 정보 검색
-    voice_info = db.query(Voice).filter(Voice.voice_idx == chat_room.character_voice).first()
+    voice_info = db.query(Voice).filter(Voice.voice_idx == chat_room.voice_idx).first()
     print("voice_info :", voice_info)
     if not voice_info:
         raise HTTPException(status_code=404, detail="TTS 정보를 찾을 수 없습니다.")
@@ -331,7 +331,7 @@ def get_chat_room_info(room_id: str, db: Session = Depends(get_db)):
     }
 
 
-# ----------------------------------------수정 필요----------------------------------------
+# ----------------------------------------확인 필요----------------------------------------
 # 채팅 전송 및 캐릭터 응답 - LangChain 서버 이용
 LANGCHAIN_SERVER_URL = "http://localhost:8001"  # LangChain 서버 URL
 WS_SERVER_URL = "ws://localhost:8001"  # LangChain 서버 URL
@@ -340,17 +340,21 @@ def get_chat_history(db: Session, room_id: str, limit: int = 10) -> str:
     """
     채팅방의 최근 대화 내역을 가져옵니다.
     """
-    messages = db.query(Message).filter(
-        Message.room_id == room_id
-    ).order_by(Message.timestamp.desc()).limit(limit).all()
+    logs = db.query(ChatLog).filter(
+        ChatLog.chat_id == room_id
+    ).order_by(ChatLog.end_time.desc()).limit(limit).all()
     
     # 시간순으로 정렬
-    messages = messages[::-1]
+    logs = logs[::-1]
     
     # 대화 내역을 문자열로 포맷팅
     history = ""
-    for msg in messages:
-        history += f"{msg.sender}: {msg.content}\n"
+    for log in logs:
+        # ChatLog의 log 필드에서 대화 내용 파싱
+        log_lines = log.log.split('\n')
+        for line in log_lines:
+            if 'user:' in line or 'chatbot:' in line:
+                history += line + '\n'
     
     return history
 
@@ -385,27 +389,30 @@ async def query_langchain(room_id: str, message: MessageSchema, db: Session = De
     """
     try:
         # DB에서 채팅방과 캐릭터 정보 불러오기
-        room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
+        room = db.query(ChatRoom).filter(ChatRoom.chat_id == room_id).first()
         if not room:
             raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
 
         # 캐릭터와 프롬프트 정보 가져오기
         character_prompt = db.query(CharacterPrompt).filter(
-            CharacterPrompt.char_idx == room.character_id
+            CharacterPrompt.char_prompt_id == room.character_id
         ).first()
 
         if not character_prompt:
             raise HTTPException(status_code=404, detail="캐릭터 프롬프트를 찾을 수 없습니다.")
 
         # 사용자 메시지 생성
-        message_id = str(uuid.uuid4())
-        user_message = Message(
-            id=message_id,
-            room_id=room_id,
-            sender="user", 
-            content=message.content
+        session_id = str(uuid.uuid4())
+        current_time = datetime.now()
+
+        chat_log = ChatLog(
+            session_id=session_id,
+            chat_id=room_id,
+            log=f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] user: {message.content}\n",
+            start_time=current_time,
+            end_time=current_time
         )
-        db.add(user_message)
+        db.add(chat_log)
         db.commit()
 
         # 대화 내역 가져오기
@@ -452,11 +459,12 @@ async def query_langchain(room_id: str, message: MessageSchema, db: Session = De
 
         # 봇 응답 메시지 저장
         bot_message_id = str(uuid.uuid4())
-        bot_message = Message(
-            id=bot_message_id,
-            room_id=room_id,
-            sender=room.character_name,
-            content=bot_response_text
+        bot_message = ChatLog(
+            session_id=bot_message_id,
+            chat_id=room_id,
+            log=f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] chatbot: {bot_response_text}",
+            start_time=datetime.now(),
+            end_time=datetime.now()
         )
         db.add(bot_message)
         db.commit()
@@ -484,20 +492,19 @@ async def create_character(
     db: Session = Depends(get_db)
 ):
     try:
-        with db.begin:
+        with db.begin():
             print("Received character data:", character_data)  # 디버깅용 로그
             character_dict = json.loads(character_data)
             character = CreateCharacterSchema(**character_dict)
-            nickname = character.nickname or {30: "stranger", 70: "friend", 100: "best friend"}
 
             # 새 캐릭터 객체 생성
             new_character = Character(
-                user_idx=character.character_owner,
+                character_owner=character.character_owner,
                 field_idx=character.field_idx,
                 voice_idx=character.voice_idx,
                 char_name=character.char_name,
                 char_description=character.char_description,
-                nicknames=nickname,  # 기본값 적용
+                nicknames=json.dumps(character.nicknames)
             )
 
             db.add(new_character)
@@ -513,19 +520,19 @@ async def create_character(
                 except (json.JSONDecodeError, AttributeError):
                     return str(data)
 
-            # 각 필드의 description 값을 추출하여 저장
-            appearance_str = extract_description(character.character_appearance)
-            personality_str = extract_description(character.character_personality)
-            background_str = extract_description(character.character_background)
-            speech_style_str = extract_description(character.character_speech_style)
+            # # 각 필드의 description 값을 추출하여 저장
+            # appearance_str = extract_description(character.character_appearance)
+            # personality_str = extract_description(character.character_personality)
+            # background_str = extract_description(character.character_background)
+            # speech_style_str = extract_description(character.character_speech_style)
             
             # 캐릭터 프롬프트 생성
             new_prompt = CharacterPrompt(
                 char_idx=new_character.char_idx,
-                character_appearance=appearance_str,
-                character_personality=personality_str,
-                character_background=background_str,
-                character_speech_style=speech_style_str,
+                character_appearance=character.character_appearance,
+                character_personality=character.character_personality,
+                character_background=character.character_background,
+                character_speech_style=character.character_speech_style,
                 example_dialogues=(
                     [json.dumps(dialogue, ensure_ascii=False) for dialogue in character.example_dialogues]
                     if character.example_dialogues else None
@@ -542,11 +549,11 @@ async def create_character(
             char_name=new_character.char_name,
             char_description=new_character.char_description,
             created_at=new_character.created_at.isoformat(),
-            nickname=new_character.nicknames,
-            character_appearance={'description': appearance_str},
-            character_personality={'description': personality_str},
-            character_background={'description': background_str},
-            character_speech_style={'description': speech_style_str},
+            nicknames=json.loads(new_character.nicknames),
+            character_appearance=new_prompt.character_appearance,
+            character_personality=new_prompt.character_personality,
+            character_background=new_prompt.character_background,
+            character_speech_style=new_prompt.character_speech_style,
             example_dialogues=[
                 json.loads(dialogue) for dialogue in new_prompt.example_dialogues
             ] if new_prompt.example_dialogues else None,
@@ -586,36 +593,28 @@ def get_characters(db: Session = Depends(get_db)):
         .filter(Character.is_active == True)  # is_active가 True인 캐릭터만 가져오기
     )
 
-    characters = query.all()
+    characters_info = query.all()
 
     results = []
-    for char in characters:
-        prompt = db.query(CharacterPrompt).filter(CharacterPrompt.char_idx == char.char_idx).first()
+    for  char, prompt in characters_info:
         if prompt:
-            # JSON 문자열을 객체로 변환하고 description 키로 감싸기
-            character_appearance = {"description": json.loads(clean_json_string(prompt.character_appearance))} if prompt.character_appearance else {"description": ""}
-            character_personality = {"description": json.loads(clean_json_string(prompt.character_personality))} if prompt.character_personality else {"description": ""}
-            character_background = {"description": json.loads(clean_json_string(prompt.character_background))} if prompt.character_background else {"description": ""}
-            character_speech_style = {"description": json.loads(clean_json_string(prompt.character_speech_style))} if prompt.character_speech_style else {"description": ""}
             example_dialogues = [json.loads(clean_json_string(dialogue)) if dialogue else {} for dialogue in prompt.example_dialogues] if prompt.example_dialogues else []
+            nicknames = json.loads(char.nicknames) if char.nicknames else {'30': '', '70': '', '100': ''}
         else:
             # 기본값 설정
-            character_appearance = {"description": ""}
-            character_personality = {"description": ""}
-            character_background = {"description": ""}
-            character_speech_style = {"description": ""}
             example_dialogues = []
+            nicknames = {'30': '', '70': '', '100': ''}
 
         results.append({
             "char_idx": char.char_idx,
             "char_name": char.char_name,
             "char_description": char.char_description,
             "created_at": char.created_at.isoformat(),
-            "nickname": char.nickname,
-            "character_appearance": character_appearance,
-            "character_personality": character_personality,
-            "character_background": character_background,
-            "character_speech_style": character_speech_style,
+            "nicknames": nicknames,
+            "character_appearance": prompt.character_appearance if prompt else "",
+            "character_personality": prompt.character_personality if prompt else "",
+            "character_background": prompt.character_background if prompt else "",
+            "character_speech_style": prompt.character_speech_style if prompt else "",
             "example_dialogues": example_dialogues,
         })
     return results
@@ -751,11 +750,13 @@ def send_to_queue(request: TTSRequest):
             body=json.dumps(message),
             properties=pika.BasicProperties(delivery_mode=1),
         )
+        print(f"TTS 요청 데이터: {message}")
 
         for _ in range(6000):  # 최대 600초 대기
             method, properties, body = channel.basic_get(RESPONSE_TTS_QUEUE, auto_ack=True)
             if body:
                 response = json.loads(body)
+                print(f"TTS 응답 데이터: {response}")
                 if response["id"] == request_id:
                     connection.close()
                     if response["status"] == "success":
@@ -778,6 +779,7 @@ def send_to_queue(request: TTSRequest):
         connection.close()
         raise HTTPException(status_code=504, detail="응답 시간 초과")
     except Exception as e:
+        print(f"Exception 발생: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # TTS 모델 정보 조회 API
@@ -806,7 +808,6 @@ def get_tts_model(room_id: str, db: Session = Depends(get_db)):
         "character_name": character.character_name,
         "character_prompt": character.character_prompt,
         "character_image": character.character_image,
-        "character_status_message": character.character_status_message,
         "voice_path": voice_info.voice_path,
         "voice_speaker": voice_info.voice_speaker,
     }
