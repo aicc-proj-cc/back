@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 from jose import jwt, JWTError
-from database import SessionLocal, Follow, Character, User
+from database import SessionLocal, Friend, Character, User
 
 # .env 파일 로드
 load_dotenv()

@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException # FastAPI 프레임워크 �
 from sqlalchemy import select
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
-from prototype_back.app._database import SessionLocal, ChatRoom, ChatLog, Character, CharacterPrompt # DB 세션과 모델 가져오기
+from prototype_back.app.database import SessionLocal, ChatRoom, ChatLog, Character, CharacterPrompt # DB 세션과 모델 가져오기
 from typing import List, Optional # 데이터 타입 리스트 지원
 from pydantic import BaseModel, Field # 데이터 검증 및 스키마 생성용 Pydantic 모델
 import uuid # 고유 ID 생성을 위한 UUID 라이브러리
