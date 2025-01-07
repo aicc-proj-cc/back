@@ -669,10 +669,11 @@ def get_characters(db: Session = Depends(get_db), request: Request = None):
     )
 
     characters_info = query.all()
-
     base_url = f"{request.base_url.scheme}://{request.base_url.netloc}" if request else ""
     results = []
+
     for char, prompt, image_path in characters_info:
+        print(f"Character: {char.char_name}, field_idx: {char.field_idx}, type: {type(char.field_idx)}")
         if prompt:
             example_dialogues = [json.loads(clean_json_string(dialogue)) if dialogue else {} for dialogue in prompt.example_dialogues] if prompt.example_dialogues else []
             nicknames = json.loads(char.nicknames) if char.nicknames else {'30': '', '70': '', '100': ''}
@@ -683,6 +684,13 @@ def get_characters(db: Session = Depends(get_db), request: Request = None):
 
         # 이미지 URL 생성
         image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
+
+        tags = db.query(Tag).filter(
+            Tag.char_idx == char.char_idx,
+            Tag.is_deleted == False
+        ).all()
+        
+        tag_list = [{"tag_name": tag.tag_name, "tag_description": tag.tag_description} for tag in tags]
 
         results.append({
             "char_idx": char.char_idx,
@@ -695,8 +703,11 @@ def get_characters(db: Session = Depends(get_db), request: Request = None):
             "character_background": prompt.character_background if prompt else "",
             "character_speech_style": prompt.character_speech_style if prompt else "",
             "example_dialogues": example_dialogues,
+            "tags": tag_list,
             "character_image": image_url,
+            "field_idx": char.field_idx
         })
+
     return results
 
 # 캐릭터 필터링할때 사용하는 Query 파라미터
@@ -969,6 +980,23 @@ def get_fields(db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Error in get_fields: {str(e)}")  # 에러 로깅 추가
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/api/tags")
+def get_tags(db: Session = Depends(get_db)):
+    tags = db.query(Tag).distinct(Tag.tag_name).all()
+    return [{"tag_idx": tag.tag_idx, "tag_name": tag.tag_name} for tag in tags]
+
+@app.get("/api/fields/")
+def get_fields(db: Session = Depends(get_db)):
+    """
+    필드 항목을 반환하는 API 엔드포인트.
+    """
+    try:
+        fields = db.query(DBField).all()  # DBField는 필드 정보를 저장하는 테이블
+        return [{"field_idx": field.field_idx, "field_category": field.field_category} for field in fields]
+    except Exception as e:
+        print(f"Error in get_fields: {str(e)}")  # 에러 로그
+        raise HTTPException(status_code=500, detail="필드 데이터를 불러오는 중 오류가 발생했습니다.")
 
 @app.get("/")
 async def root():
