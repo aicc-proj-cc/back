@@ -276,39 +276,64 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"채팅방 생성 중 오류가 발생했습니다: {str(e)}")
 
 # 채팅방 목록 조회 API
-@app.get("/api/chat-room/")
-def get_chat_rooms(db: Session = Depends(get_db)):
+@app.get("/api/chat-room/", response_model=List[dict])
+def get_all_chat_rooms(db: Session = Depends(get_db)):
     """
     모든 채팅방 목록을 반환하는 API 엔드포인트.
     각 채팅방에 연결된 캐릭터 정보를 포함.
     """
-    rooms = db.query(ChatRoom).all()
+    rooms = (
+        db.query(ChatRoom, Character, CharacterPrompt)
+        .join(CharacterPrompt, CharacterPrompt.char_prompt_id == ChatRoom.char_prompt_id)
+        .join(Character, Character.char_idx == CharacterPrompt.char_idx)
+        .filter(Character.is_active == True)
+        .all()
+    )
+
     result = []
-    for room in rooms:
-        # 캐릭터 정보 가져오기
-        character_data = (
-            db.query(Character, CharacterPrompt)
-            .join(CharacterPrompt, CharacterPrompt.char_idx == Character.char_idx)
-            .join(ChatRoom, ChatRoom.char_prompt_id == CharacterPrompt.char_prompt_id)
-            .filter(
-                ChatRoom.chat_id == room.chat_id,
-                Character.is_active == True
-            )
-            .first()
-        )
-        character, prompt = character_data
-        if character:
-            result.append({
-                "room_id": room.chat_id,
-                "character_name": character.char_name,
-                "char_description": character.char_description,
-                "character_appearance": prompt.character_appearance,
-                "character_personality": prompt.character_personality,
-                "character_background": prompt.character_background,
-                "character_speech_style": prompt.character_speech_style,
-                "room_created_at": room.created_at,
-            })
+    for room, character, prompt in rooms:
+        result.append({
+            "room_id": room.chat_id,
+            "character_name": character.char_name,
+            "char_description": character.char_description,
+            "character_appearance": prompt.character_appearance,
+            "character_personality": prompt.character_personality,
+            "character_background": prompt.character_background,
+            "character_speech_style": prompt.character_speech_style,
+            "room_created_at": room.created_at,
+        })
     return result
+
+
+# 특정 유저가 생성한 채팅방 목록 조회 API
+@app.get("/api/chat-room/user/{user_id}", response_model=List[dict])
+def get_user_chat_rooms(user_id: int, db: Session = Depends(get_db)):
+    """
+    특정 사용자가 생성한 채팅방 목록을 반환하는 API 엔드포인트.
+    각 채팅방에 연결된 캐릭터 정보를 포함.
+    """
+    rooms = (
+        db.query(ChatRoom, Character, CharacterPrompt)
+        .join(CharacterPrompt, CharacterPrompt.char_prompt_id == ChatRoom.char_prompt_id)
+        .join(Character, Character.char_idx == CharacterPrompt.char_idx)
+        .filter(ChatRoom.user_idx == user_id, Character.is_active == True)
+        .all()
+    )
+
+    result = []
+    for room, character, prompt in rooms:
+        result.append({
+            "room_id": room.chat_id,
+            "character_name": character.char_name,
+            "char_description": character.char_description,
+            "character_appearance": prompt.character_appearance,
+            "character_personality": prompt.character_personality,
+            "character_background": prompt.character_background,
+            "character_speech_style": prompt.character_speech_style,
+            "room_created_at": room.created_at,
+        })
+    return result
+
 
 # ----------------------------------------확인 필요----------------------------------------
 # 채팅 메시지 불러오기
