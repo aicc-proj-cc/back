@@ -557,20 +557,6 @@ async def create_character(
             character_dict = json.loads(character_data)
             character = CreateCharacterSchema(**character_dict)
 
-            upload_dir = Path("uploaded_images/")
-            upload_dir.mkdir(parents=True, exist_ok=True)
-            file_name = f"{uuid.uuid4().hex}_{character_image.filename}"
-            file_path = upload_dir / file_name
-
-            # 파일 저장
-            with open(file_path, "wb") as f:
-                f.write(character_image.file.read())
-
-            # 이미지 테이블에 저장
-            new_image = Image(file_path=str(file_path))
-            db.add(new_image)
-            db.flush()  # `new_image.img_idx` 확보를 위해 flush 실행
-
             # 새 캐릭터 객체 생성
             new_character = Character(
                 character_owner=character.character_owner,
