@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
 
-from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice, ChatLog, Field as DBField, Image, ImageMapping
+from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice, ChatLog, Field as DBField, Image, ImageMapping, Tag, Image, ImageMapping
 
  # DB 세션과 모델 가져오기
 from typing import List, Optional # 데이터 타입 리스트 지원
@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware # CORS 설정용 미들웨어
 import re
 import websockets
 import asyncio
+from pathlib import Path  # 파일 경로 조작을 위한 모듈
 
 
 # from auth import verify_token
@@ -124,6 +125,7 @@ class CreateCharacterSchema(BaseModel):
     character_background: str
     character_speech_style: str
     example_dialogues: Optional[List[dict]] = None
+    tags: Optional[List[dict]] = None
 
 # 캐릭터 응답 스키마
 class CharacterResponseSchema(BaseModel):
@@ -544,6 +546,20 @@ async def create_character(
             character_dict = json.loads(character_data)
             character = CreateCharacterSchema(**character_dict)
 
+            upload_dir = Path("uploaded_images/")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            file_name = f"{uuid.uuid4().hex}_{character_image.filename}"
+            file_path = upload_dir / file_name
+
+            # 파일 저장
+            with open(file_path, "wb") as f:
+                f.write(character_image.file.read())
+
+            # 이미지 테이블에 저장
+            new_image = Image(file_path=str(file_path))
+            db.add(new_image)
+            db.flush()  # `new_image.img_idx` 확보를 위해 flush 실행
+
             # 새 캐릭터 객체 생성
             new_character = Character(
                 character_owner=character.character_owner,
@@ -553,9 +569,15 @@ async def create_character(
                 char_description=character.char_description,
                 nicknames=json.dumps(character.nicknames)
             )
-
             db.add(new_character)
             db.flush()  # `new_character.char_idx`를 사용하기 위해 flush 실행
+
+            new_image_mapping = ImageMapping(
+                char_idx=new_character.char_idx,
+                img_idx=new_image.img_idx,
+                is_active=True,
+            )
+            db.add(new_image_mapping)
             
             # 캐릭터 프롬프트 생성
             new_prompt = CharacterPrompt(
@@ -594,6 +616,15 @@ async def create_character(
             )
             db.add(image_mapping)
 
+            if character.tags:
+                for tag in character.tags:
+                    new_tag = Tag(
+                        char_idx=new_character.char_idx,
+                        tag_name=tag["tag_name"],
+                        tag_description=tag["tag_description"]
+                    )
+                    db.add(new_tag)
+
         # 트랜잭션 커밋 (with 블록 종료 시 자동으로 커밋됨, 명시적으로 작성)
         db.commit()
 
@@ -613,7 +644,7 @@ async def create_character(
             character_image=file_path
         )
     except Exception as e:
-        print(f"Error in create_character: {str(e)}")  # 디버깅용 로그
+        print(f"Error in create_character: {str(e)}")
         db.rollback() # 트랜잭션 롤백
         raise HTTPException(status_code=500, detail=str(e))
 
