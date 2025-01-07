@@ -1,5 +1,3 @@
-# 캐릭터 생성시, 첫 대사 1가지를 입력해야함.
-
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query # FastAPI 프레임워크 및 종속성 주입 도구
 from fastapi.responses import FileResponse
 
@@ -568,13 +566,6 @@ async def create_character(
             )
             db.add(new_character)
             db.flush()  # `new_character.char_idx`를 사용하기 위해 flush 실행
-
-            new_image_mapping = ImageMapping(
-                char_idx=new_character.char_idx,
-                img_idx=new_image.img_idx,
-                is_active=True,
-            )
-            db.add(new_image_mapping)
             
             # 캐릭터 프롬프트 생성
             new_prompt = CharacterPrompt(
