@@ -209,9 +209,11 @@ def get_rabbitmq_channel(req_que, res_que):
 # ====== API 엔드포인트 ======
 
 from fastapi import File, UploadFile, Form, Request
+from fastapi.staticfiles import StaticFiles
 
 UPLOAD_DIR = "./uploads/characters/"  # 캐릭터 이미지 파일 저장 경로
 os.makedirs(UPLOAD_DIR, exist_ok=True) # 디렉토리 생성
+app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
 
 
 # 채팅방 생성 API
@@ -662,8 +664,8 @@ def clean_json_string(json_string):
         return json_string
     return re.sub(r'[\x00-\x1F\x7F]', '', json_string)
 
-# 캐릭터 목록 조회 API
-@app.get("/api/characters/", response_model=List[CharacterResponseSchema])
+# 캐릭터 목록 조회 API--------------------------
+@app.get("/api/characters/", response_model=List[dict])
 def get_characters(db: Session = Depends(get_db), request: Request = None):
     # 각 캐릭터에 대한 최신 char_prompt_id를 가져오는 subquery
     subquery = (
