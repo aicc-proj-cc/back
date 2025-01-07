@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
 
-from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice, ChatLog, Field as DBField
+from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice, ChatLog, Field as DBField, Image, ImageMapping
 
  # DB 세션과 모델 가져오기
 from typing import List, Optional # 데이터 타입 리스트 지원
@@ -526,6 +526,11 @@ async def query_langchain(room_id: str, message: MessageSchema, db: Session = De
 
 from fastapi import File, UploadFile, Form
 
+UPLOAD_DIR = "./uploads/characters/"  # 파일 저장 경로
+
+# 디렉토리 생성
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 # 캐릭터 생성 api
 @app.post("/api/characters/", response_model=CharacterResponseSchema)
 async def create_character(
@@ -551,22 +556,6 @@ async def create_character(
 
             db.add(new_character)
             db.flush()  # `new_character.char_idx`를 사용하기 위해 flush 실행
-
-            def extract_description(data):
-                """데이터에서 description 값을 추출하는 헬퍼 함수"""
-                if isinstance(data, dict):
-                    return data.get('description', '')
-                try:
-                    parsed = json.loads(data) if isinstance(data, str) else data
-                    return parsed.get('description', str(data))
-                except (json.JSONDecodeError, AttributeError):
-                    return str(data)
-
-            # # 각 필드의 description 값을 추출하여 저장
-            # appearance_str = extract_description(character.character_appearance)
-            # personality_str = extract_description(character.character_personality)
-            # background_str = extract_description(character.character_background)
-            # speech_style_str = extract_description(character.character_speech_style)
             
             # 캐릭터 프롬프트 생성
             new_prompt = CharacterPrompt(
@@ -583,7 +572,29 @@ async def create_character(
 
             db.add(new_prompt)
 
-        # 트랜잭션 커밋 (with 블록 종료 시 자동으로 커밋됨)
+            # 이미지 파일 저장
+            file_extension = character_image.filename.split(".")[-1]
+            timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            unique_filename = f"{timestamp}_{uuid.uuid4().hex}.{file_extension}"
+            file_path = os.path.join(UPLOAD_DIR, unique_filename)
+
+            # 파일 저장
+            with open(file_path, "wb") as f:
+                f.write(await character_image.read())
+
+             # 이미지 테이블에 저장
+            new_image = Image(file_path=file_path)
+            db.add(new_image)
+            db.flush()  # `new_image.img_idx` 사용하기 위해 flush 실행
+            
+            # 이미지와 캐릭터 매핑
+            image_mapping = ImageMapping(
+                char_idx=new_character.char_idx,
+                img_idx=new_image.img_idx
+            )
+            db.add(image_mapping)
+
+        # 트랜잭션 커밋 (with 블록 종료 시 자동으로 커밋됨, 명시적으로 작성)
         db.commit()
 
         return CharacterResponseSchema(
@@ -599,6 +610,7 @@ async def create_character(
             example_dialogues=[
                 json.loads(dialogue) for dialogue in new_prompt.example_dialogues
             ] if new_prompt.example_dialogues else None,
+            character_image=file_path
         )
     except Exception as e:
         print(f"Error in create_character: {str(e)}")  # 디버깅용 로그
