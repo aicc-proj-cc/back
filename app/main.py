@@ -208,6 +208,12 @@ def get_rabbitmq_channel(req_que, res_que):
 
 # ====== API 엔드포인트 ======
 
+from fastapi import File, UploadFile, Form, Request
+
+UPLOAD_DIR = "./uploads/characters/"  # 캐릭터 이미지 파일 저장 경로
+os.makedirs(UPLOAD_DIR, exist_ok=True) # 디렉토리 생성
+
+
 # 채팅방 생성 API
 @app.post("/api/chat-room/", response_model=dict)
 def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
@@ -277,21 +283,26 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
 
 # 채팅방 목록 조회 API
 @app.get("/api/chat-room/", response_model=List[dict])
-def get_all_chat_rooms(db: Session = Depends(get_db)):
+def get_all_chat_rooms(request: Request, db: Session = Depends(get_db)):
     """
     모든 채팅방 목록을 반환하는 API 엔드포인트.
-    각 채팅방에 연결된 캐릭터 정보를 포함.
+    각 채팅방에 연결된 캐릭터 정보 및 이미지를 포함.
     """
     rooms = (
-        db.query(ChatRoom, Character, CharacterPrompt)
+        db.query(ChatRoom, Character, CharacterPrompt, Image.file_path)
         .join(CharacterPrompt, CharacterPrompt.char_prompt_id == ChatRoom.char_prompt_id)
         .join(Character, Character.char_idx == CharacterPrompt.char_idx)
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
         .filter(Character.is_active == True)
         .all()
     )
 
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}"
     result = []
-    for room, character, prompt in rooms:
+    for room, character, prompt, image_path in rooms:
+        # 이미지 경로를 URL로 변환
+        image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
         result.append({
             "room_id": room.chat_id,
             "character_name": character.char_name,
@@ -301,27 +312,33 @@ def get_all_chat_rooms(db: Session = Depends(get_db)):
             "character_background": prompt.character_background,
             "character_speech_style": prompt.character_speech_style,
             "room_created_at": room.created_at,
+            "character_image": image_url,  # 전체 URL 반환
         })
     return result
 
 
 # 특정 유저가 생성한 채팅방 목록 조회 API
 @app.get("/api/chat-room/user/{user_id}", response_model=List[dict])
-def get_user_chat_rooms(user_id: int, db: Session = Depends(get_db)):
+def get_user_chat_rooms(user_id: int, request: Request, db: Session = Depends(get_db)):
     """
     특정 사용자가 생성한 채팅방 목록을 반환하는 API 엔드포인트.
-    각 채팅방에 연결된 캐릭터 정보를 포함.
+    각 채팅방에 연결된 캐릭터 정보 및 이미지를 포함.
     """
     rooms = (
-        db.query(ChatRoom, Character, CharacterPrompt)
+        db.query(ChatRoom, Character, CharacterPrompt, Image.file_path)
         .join(CharacterPrompt, CharacterPrompt.char_prompt_id == ChatRoom.char_prompt_id)
         .join(Character, Character.char_idx == CharacterPrompt.char_idx)
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
         .filter(ChatRoom.user_idx == user_id, Character.is_active == True)
         .all()
     )
 
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}"
     result = []
-    for room, character, prompt in rooms:
+    for room, character, prompt, image_path in rooms:
+        # 이미지 경로를 URL로 변환
+        image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
         result.append({
             "room_id": room.chat_id,
             "character_name": character.char_name,
@@ -331,6 +348,7 @@ def get_user_chat_rooms(user_id: int, db: Session = Depends(get_db)):
             "character_background": prompt.character_background,
             "character_speech_style": prompt.character_speech_style,
             "room_created_at": room.created_at,
+            "character_image": image_url,  # 이미지 URL 반환
         })
     return result
 
@@ -524,15 +542,6 @@ async def query_langchain(room_id: str, message: MessageSchema, db: Session = De
         print(f"Error in query_langchain: {str(e)}")  # 디버깅용
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-from fastapi import File, UploadFile, Form
-
-UPLOAD_DIR = "./uploads/characters/"  # 파일 저장 경로
-
-# 디렉토리 생성
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 # 캐릭터 생성 api
 @app.post("/api/characters/", response_model=CharacterResponseSchema)
 async def create_character(
@@ -655,7 +664,7 @@ def clean_json_string(json_string):
 
 # 캐릭터 목록 조회 API
 @app.get("/api/characters/", response_model=List[CharacterResponseSchema])
-def get_characters(db: Session = Depends(get_db)):
+def get_characters(db: Session = Depends(get_db), request: Request = None):
     # 각 캐릭터에 대한 최신 char_prompt_id를 가져오는 subquery
     subquery = (
         select(
@@ -666,22 +675,25 @@ def get_characters(db: Session = Depends(get_db)):
         .subquery()
     )
 
-    # 캐릭터를 최신 프롬프트와 join하는 query
+    # 캐릭터를 최신 프롬프트와 join하고 이미지 정보를 포함하는 query
     query = (
-        db.query(Character, CharacterPrompt)
+        db.query(Character, CharacterPrompt, Image.file_path)
         .join(subquery, subquery.c.char_idx == Character.char_idx)
         .join(
             CharacterPrompt,
             (CharacterPrompt.char_idx == subquery.c.char_idx) &
             (CharacterPrompt.created_at == subquery.c.latest_created_at)
         )
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
         .filter(Character.is_active == True)  # is_active가 True인 캐릭터만 가져오기
     )
 
     characters_info = query.all()
 
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}" if request else ""
     results = []
-    for  char, prompt in characters_info:
+    for char, prompt, image_path in characters_info:
         if prompt:
             example_dialogues = [json.loads(clean_json_string(dialogue)) if dialogue else {} for dialogue in prompt.example_dialogues] if prompt.example_dialogues else []
             nicknames = json.loads(char.nicknames) if char.nicknames else {'30': '', '70': '', '100': ''}
@@ -689,6 +701,9 @@ def get_characters(db: Session = Depends(get_db)):
             # 기본값 설정
             example_dialogues = []
             nicknames = {'30': '', '70': '', '100': ''}
+
+        # 이미지 URL 생성
+        image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
 
         results.append({
             "char_idx": char.char_idx,
@@ -701,6 +716,7 @@ def get_characters(db: Session = Depends(get_db)):
             "character_background": prompt.character_background if prompt else "",
             "character_speech_style": prompt.character_speech_style if prompt else "",
             "example_dialogues": example_dialogues,
+            "character_image": image_url,
         })
     return results
 
