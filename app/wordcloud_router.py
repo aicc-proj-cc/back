@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from wordcloud import WordCloud
 from fastapi.responses import FileResponse
 from io import BytesIO
@@ -14,7 +14,8 @@ from sqlalchemy.orm import sessionmaker
 import shutil
 from pydantic import BaseModel
 from sqlalchemy.ext.declarative import declarative_base
-from database import SessionLocal,Character
+from database import SessionLocal,Character, Field
+from collections import Counter
 from dotenv import load_dotenv
 
 # .env 파일 로드
@@ -62,28 +63,54 @@ def upload_image(file: UploadFile = File(...)):
         print(f"파일 업로드 처리 중 오류: {e}")  # 디버깅용 로그
         raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
 
+
+
 @router.get("/wordcloud", response_class=FileResponse)
 def generate_wordcloud(db: Session = Depends(get_db)):
     try:
         characters = db.query(Character).all()
+
+
+        fields = db.query(Field).all()
+
+        characters = db.query(Character).all()
         if not characters:
             raise HTTPException(status_code=404, detail="캐릭터 데이터가 없습니다.")
 
-        word_frequencies = {character.char_name: character.follows for character in characters}
-        font_path = "C:\\Windows\\Fonts\\malgun.ttf"  # Windows
+
+        field_ids = [character.field_idx for character in characters]
+        field_frequencies = Counter(field_ids)
+
+
+        fields = db.query(Field).filter(Field.field_idx.in_(field_frequencies.keys())).all()
+        if not fields:
+            raise HTTPException(status_code=404, detail="필드 데이터가 없습니다.")
+
+
+        field_category_frequencies = {
+            field.field_category: field_frequencies[field.field_idx] for field in fields
+        }
+
+
+        font_path = "C:\\Windows\\Fonts\\malgun.ttf"
         if not os.path.exists(font_path):
-            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # Linux
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
         if not os.path.exists(font_path):
             raise HTTPException(status_code=500, detail="폰트 파일이 없습니다.")
 
         wordcloud = WordCloud(
-            width=800, height=400, background_color="white", max_words=200,
+            width=800,
+            height=400,
+            background_color="white",
+            max_words=200,
             font_path=font_path
-        ).generate_from_frequencies(word_frequencies)
+        ).generate_from_frequencies(field_category_frequencies)
 
         output_path = "wordcloud.png"
         wordcloud.to_file(output_path)
         return FileResponse(output_path, media_type="image/png", filename="wordcloud.png")
+
     except Exception as e:
+        print(f"Error in generate_wordcloud: {e}")
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
