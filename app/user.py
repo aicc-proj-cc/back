@@ -57,7 +57,7 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
 class SignupRequest(BaseModel):
     nickname: str
     user_id: str
-    profile_picture: Optional[str] = None
+    profile_img: Optional[str] = None
     password: str
 
 
@@ -65,7 +65,7 @@ class UserResponse(BaseModel):
     user_idx: int
     nickname: str
     user_id: str
-    profile_picture: Optional[str] = None
+    profile_img: Optional[str] = None
     # is_active: bool
     # created_at: datetime
 
@@ -144,7 +144,7 @@ def get_all_users(db: Session = Depends(get_db)):
                 "user_idx": user.user_idx,
                 "user_id": user.user_id,
                 "nickname": user.nickname,
-                "profile_picture": user.profile_picture,
+                "profile_img": user.profile_img,
             }
             for user in users
         ]
@@ -210,8 +210,8 @@ def delete_user(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"서버 내부 오류: {e}")
 
 
-@router.post("/upload-profile-picture/{user_id}/", response_model=dict)
-def upload_profile_picture(
+@router.post("/upload-profile-img/{user_id}/", response_model=dict)
+def upload_profile_img(
     user_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -231,20 +231,20 @@ def upload_profile_picture(
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다!")
 
         # 사용자 프로필 사진 업데이트
-        user.profile_picture = file_location
+        user.profile_img = file_location
         db.commit()
         db.refresh(user)
 
         # 성공 메시지 반환
-        return {"message": f"사용자의 프로필 사진이 저장되었습니다.", "profile_picture": file_location}
+        return {"message": f"사용자의 프로필 사진이 저장되었습니다.", "profile_img": file_location}
     except Exception as e:
         print(f"파일 업로드 중 오류: {e}")  # 디버깅용 로그
         raise HTTPException(status_code=500, detail=f"파일 업로드 실패: {str(e)}")
 
 
 
-@router.get("/get-profile-picture/{user_id}/", response_model=dict)
-def get_profile_picture(user_id: str, db: Session = Depends(get_db)):
+@router.get("/get-profile-img/{user_id}/", response_model=dict)
+def get_profile_img(user_id: str, db: Session = Depends(get_db)):
     try:
         # 사용자 조회
         user = db.query(User).filter(User.user_id == user_id).first()
@@ -252,13 +252,13 @@ def get_profile_picture(user_id: str, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다!")
 
         # 프로필 사진 확인
-        if not user.profile_picture:
+        if not user.profile_img:
             raise HTTPException(status_code=404, detail="프로필 사진이 등록되지 않았습니다.")
 
         # 성공 응답 반환
         return {
             "message": "사용자의 프로필 사진을 조회했습니다.",
-            "profile_picture": user.profile_picture,
+            "profile_img": user.profile_img,
         }
     except Exception as e:
         print(f"프로필 사진 조회 중 오류: {e}")  # 디버깅용 로그

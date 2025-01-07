@@ -92,7 +92,7 @@ class User(Base):
     user_id = Column(String, unique=True, nullable=False)
     nickname = Column(String, nullable=False)
     password = Column(String, nullable=False)
-    profile_picture = Column(String, nullable=True)
+    profile_img = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
