@@ -14,9 +14,12 @@ from sqlalchemy.orm import sessionmaker
 import shutil
 from pydantic import BaseModel
 from sqlalchemy.ext.declarative import declarative_base
-from database import SessionLocal,Character, Field
+import re
+from database import SessionLocal, ChatRoom, ChatLog
 from collections import Counter
 from dotenv import load_dotenv
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 
 
 # .env 파일 로드
@@ -64,36 +67,62 @@ def upload_image(file: UploadFile = File(...)):
         print(f"파일 업로드 처리 중 오류: {e}")  # 디버깅용 로그
         raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-
-@router.get("/wordcloud", response_class=FileResponse)
-def generate_wordcloud(db: Session = Depends(get_db)):
+def decode_token(token: str):
     try:
-        characters = db.query(Character).all()
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_idx: int = payload.get("user_idx")
+        if user_idx is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return user_idx
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Could not validate token")
 
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    return decode_token(token)
 
-        fields = db.query(Field).all()
+def preprocess_korean_text(logs_text):
+    # 한글 텍스트 전처리: 한글만 추출
+    words = re.findall(r'[가-힣]+', logs_text)  # 한글만 추출
+    
+    # 한국어 불용어 목록
+    korean_stopwords = set([
+        "은", "는", "이", "가", "을", "를", "에", "의", "와", "과", 
+        "도", "로", "에서", "에게", "한", "하다", "있다", "합니다",
+        "했다", "하지만", "그리고", "그러나", "때문에", "한다", "것", 
+        "같다", "더", "못", "이런", "저런", "그런", "어떻게", "왜"
+    ])
+    
+    # 불용어 제거
+    filtered_words = [word for word in words if word not in korean_stopwords]
+    return filtered_words
 
-        characters = db.query(Character).all()
-        if not characters:
-            raise HTTPException(status_code=404, detail="캐릭터 데이터가 없습니다.")
+@router.get("/user-wordcloud/{user_idx}", response_class=FileResponse)
+def generate_user_wordcloud(user_idx: int, db: Session = Depends(get_db)):
+    try:
+        # 해당 User_idx의 chat_id 가져오기
+        chat_ids = db.query(ChatRoom.chat_id).filter(ChatRoom.user_idx == user_idx).all()
+        if not chat_ids:
+            raise HTTPException(status_code=404, detail="해당 User_idx에 대한 채팅 데이터가 없습니다.")
 
+        chat_ids = [chat_id[0] for chat_id in chat_ids]  # 결과를 리스트로 변환
 
-        field_ids = [character.field_idx for character in characters]
-        field_frequencies = Counter(field_ids)
+        # chat_id에 해당하는 로그 가져오기
+        logs = db.query(ChatLog.log).filter(ChatLog.chat_id.in_(chat_ids)).all()
+        if not logs:
+            raise HTTPException(status_code=404, detail="해당 User_idx에 대한 로그 데이터가 없습니다.")
 
+        logs_text = " ".join([log[0] for log in logs])  # 모든 로그를 하나의 문자열로 결합
 
-        fields = db.query(Field).filter(Field.field_idx.in_(field_frequencies.keys())).all()
-        if not fields:
-            raise HTTPException(status_code=404, detail="필드 데이터가 없습니다.")
+        # 텍스트 전처리 (한국어 기준)
+        words = preprocess_korean_text(logs_text)
 
+        # 단어 빈도 계산
+        word_frequencies = Counter(words)
 
-        field_category_frequencies = {
-            field.field_category: field_frequencies[field.field_idx] for field in fields
-        }
-
-
-        font_path = "C:\\Windows\\Fonts\\malgun.ttf"
+        # 워드 클라우드 생성
+        font_path = "C:\\Windows\\Fonts\\malgun.ttf"  # 한글 지원 폰트 경로
         if not os.path.exists(font_path):
             font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
@@ -104,14 +133,15 @@ def generate_wordcloud(db: Session = Depends(get_db)):
             width=800,
             height=400,
             background_color="white",
-            max_words=200,
-            font_path=font_path
-        ).generate_from_frequencies(field_category_frequencies)
+            font_path=font_path,
+            max_words=200
+        ).generate_from_frequencies(word_frequencies)
 
-        output_path = "wordcloud.png"
+        # 결과 저장 및 반환
+        output_path = "user_wordcloud.png"
         wordcloud.to_file(output_path)
-        return FileResponse(output_path, media_type="image/png", filename="wordcloud.png")
+        return FileResponse(output_path, media_type="image/png", filename="user_wordcloud.png")
 
     except Exception as e:
-        print(f"Error in generate_wordcloud: {e}")
+        print(f"Error in generate_user_wordcloud: {e}")
         raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
