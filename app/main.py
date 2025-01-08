@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query # FastAPI 프레임워크 및 종속성 주입 도구
+from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query, Body # FastAPI 프레임워크 및 종속성 주입 도구
 from fastapi.responses import FileResponse
 
 from sqlalchemy import select
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
 
-from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice, ChatLog, Field as DBField, Image, ImageMapping, Tag, Image, ImageMapping
+from database import SessionLocal, ChatRoom, Character, CharacterPrompt, Voice, ChatLog, Field as DBField, Image, ImageMapping, Tag, Image, ImageMapping, Friend
 
  # DB 세션과 모델 가져오기
 from typing import List, Optional # 데이터 타입 리스트 지원
@@ -1012,6 +1012,67 @@ def get_fields(db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Error in get_fields: {str(e)}")  # 에러 로그
         raise HTTPException(status_code=500, detail="필드 데이터를 불러오는 중 오류가 발생했습니다.")
+    
+@app.post("/api/friends/follow", response_model=dict)
+def follow_character(
+    user_idx: int = Body(...),
+    char_idx: int = Body(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        # 이미 팔로우 중인지 확인
+        existing_follow = db.query(Friend).filter(
+            Friend.user_idx == user_idx,
+            Friend.char_idx == char_idx,
+            Friend.is_active == True
+        ).first()
+
+        if existing_follow:
+            raise HTTPException(status_code=400, detail="이미 팔로우한 캐릭터입니다.")
+
+        # 새로운 팔로우 관계 생성
+        new_follow = Friend(
+            user_idx=user_idx,
+            char_idx=char_idx
+        )
+        db.add(new_follow)
+        db.commit()
+        return {"message": "성공적으로 팔로우했습니다."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/friends/unfollow/{user_idx}/{char_idx}", response_model=dict)
+def unfollow_character(
+    user_idx: int,
+    char_idx: int,
+    db: Session = Depends(get_db)
+):
+    try:
+        follow = db.query(Friend).filter(
+            Friend.user_idx == user_idx,
+            Friend.char_idx == char_idx,
+            Friend.is_active == True
+        ).first()
+
+        if not follow:
+            raise HTTPException(status_code=404, detail="팔로우 관계를 찾을 수 없습니다.")
+
+        follow.is_active = False
+        db.commit()
+        return {"message": "성공적으로 언팔로우했습니다."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/friends/check/{user_idx}/{char_idx}")
+def check_follow(user_idx: int, char_idx: int, db: Session = Depends(get_db)):
+    follow = db.query(Friend).filter(
+        Friend.user_idx == user_idx,
+        Friend.char_idx == char_idx,
+        Friend.is_active == True
+    ).first()
+    return {"is_following": bool(follow)}
 
 @app.get("/")
 async def root():
