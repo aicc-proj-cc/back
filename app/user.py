@@ -160,10 +160,10 @@ def get_all_users(db: Session = Depends(get_db)):
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)
-def get_user(user_id: str, db: Session = Depends(get_db)):
+def get_user(user_id: int, db: Session = Depends(get_db)):
     try:
         # 사용자 조회
-        user = db.query(User).filter(User.user_id == user_id).first()
+        user = db.query(User).filter(User.user_idx == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다!")
         
