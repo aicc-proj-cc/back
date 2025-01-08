@@ -49,9 +49,13 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="signin")
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 
 class SignupRequest(BaseModel):
@@ -110,8 +114,8 @@ def signin(signin_request: SignInRequest, db: Session = Depends(get_db)):
         if not user or user.password != signin_request.password:
             raise HTTPException(status_code=400, detail="잘못된 사용자 ID 또는 비밀번호입니다.")
 
-        # 액세스 토큰 생성
-        token = create_access_token(data={"sub": user.user_id})
+        # 액세스 토큰 생성 (user_id와 user_idx 포함)
+        token = create_access_token(data={"sub": user.user_id, "user_idx": user.user_idx})
         return {"message": "로그인 성공", "token": token}
     except Exception as e:
         print(f"로그인 처리 중 오류: {e}")  # 상세 오류 출력
@@ -124,11 +128,13 @@ def verify_token(token: str = Depends(oauth2_scheme)):
         # JWT 토큰 디코딩
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
-        if not user_id:
+        user_idx: int = payload.get("user_idx")  # user_idx 추출
+        
+        if not user_id or not user_idx:
             raise HTTPException(status_code=401, detail="유효하지 않은 토큰")
         
-        # 토큰이 유효한 경우
-        return {"message": "토큰이 유효합니다", "user_id": user_id}
+        # 토큰이 유효한 경우 user_idx 반환
+        return {"message": "토큰이 유효합니다", "user_idx": user_idx}
     except JWTError as e:
         print(f"토큰 검증 오류: {e}")  # 디버깅용 오류 출력
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰")

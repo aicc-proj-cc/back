@@ -18,6 +18,7 @@ from database import SessionLocal,Character, Field
 from collections import Counter
 from dotenv import load_dotenv
 
+
 # .env 파일 로드
 load_dotenv()
 
