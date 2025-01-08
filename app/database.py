@@ -167,7 +167,7 @@ class SecretDiary(Base):
     __tablename__ = "secret_diary"
 
     diary_idx = Column(Integer, primary_key=True, autoincrement=True)
-    session = Column(String(50), ForeignKey("chat_logs.sesseion_id"), nullable=False)
+    session = Column(String(50), ForeignKey("chat_logs.session_id"), nullable=False)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
 
