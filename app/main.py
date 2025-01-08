@@ -353,50 +353,76 @@ def get_user_chat_rooms(user_id: int, request: Request, db: Session = Depends(ge
     return result
 
 
-# ----------------------------------------확인 필요----------------------------------------
 # 채팅 메시지 불러오기
 @app.get("/api/chat/{room_id}")
 def get_chat_logs(room_id: str, db: Session = Depends(get_db)):
     """
     특정 채팅방의 메시지 로그를 반환하는 API 엔드포인트.
     """
-    logs = db.query(ChatLog).filter(ChatLog.chat_id == room_id).all()
-    return [{"session_id": log.session_id, "log": log.log, "start_time": log.start_time, "end_time": log.end_time} for log in logs]
+    logs = (
+        db.query(ChatLog)
+        .filter(ChatLog.chat_id == room_id)
+        .order_by(ChatLog.start_time)
+        .all()
+    )
+    return [
+        {
+            "session_id": log.session_id,
+            "log": log.log,
+            "start_time": log.start_time,
+            "end_time": log.end_time,
+        }
+        for log in logs
+    ]
 
-# ----------------------------------------확인 필요----------------------------------------
 # 채팅방에서 캐릭터 정보 불러오기
 @app.get("/api/chat-room-info/{room_id}")
 def get_chat_room_info(room_id: str, db: Session = Depends(get_db)):
     """
-    특정 채팅방의 정보를 반환하는 API 엔드포인트.
+    특정 채팅방에 연결된 캐릭터 및 Voice 정보를 반환하는 API 엔드포인트.
     """
-    chat_room = db.query(ChatRoom).filter(ChatRoom.chat_id == room_id).first()
-    if not chat_room:
-        raise HTTPException(status_code=404, detail="해당 채팅방을 찾을 수 없습니다.")
-    
+    try:
+        chat_data = (
+            db.query(ChatRoom, CharacterPrompt, Character, Voice)
+            .join(CharacterPrompt, ChatRoom.char_prompt_id == CharacterPrompt.char_prompt_id)
+            .join(Character, CharacterPrompt.char_idx == Character.char_idx)
+            .join(Voice, Character.voice_idx == Voice.voice_idx)
+            .filter(ChatRoom.chat_id == room_id)
+            .first()
+        )
+
+        if not chat_data:
+            raise HTTPException(status_code=404, detail="해당 채팅방 정보를 찾을 수 없습니다.")
         
-    # voice 테이블에서 character_id와 연결된 TTS 정보 검색
-    voice_info = db.query(Voice).filter(Voice.voice_idx == chat_room.voice_idx).first()
-    print("voice_info :", voice_info)
-    if not voice_info:
-        raise HTTPException(status_code=404, detail="TTS 정보를 찾을 수 없습니다.")
+        chat, prompt, character, voice = chat_data
 
-    
-    return {
-        "room_id": chat_room.id,
-        "character_name": chat_room.character_name,
-        "character_emotion": chat_room.character_emotion,
-        "character_likes": chat_room.character_likes,
-        "character_voice": chat_room.character_voice,
-        "voice_path": voice_info.voice_path, # TTS 모델 경로
-        "voice_speaker": voice_info.voice_speaker, # TTS 스피커 이름
-    }
+        return {
+            "chat_id": chat.chat_id,
+            "user_idx": chat.user_idx,
+            "favorability": chat.favorability,
+            "user_unique_name": chat.user_unique_name,
+            "user_introduction": chat.user_introduction,
+            "room_created_at": chat.created_at.isoformat(),
+            "char_idx": character.char_idx,
+            "char_name": character.char_name,
+            "char_description": character.char_description,
+            "character_appearance": prompt.character_appearance,
+            "character_personality": prompt.character_personality,
+            "character_background": prompt.character_background,
+            "character_speech_style": prompt.character_speech_style,
+            "example_dialogues": prompt.example_dialogues,
+            "voice_path": voice.voice_path,
+            "voice_speaker": voice.voice_speaker,
+        }
+    except Exception as e:
+        print(f"Error fetching chat room info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"채팅방 정보를 가져오는 중 오류가 발생했습니다: {str(e)}")
 
-
+# ----------------------------------------------------------------------------------------
 # ----------------------------------------확인 필요----------------------------------------
 # 채팅 전송 및 캐릭터 응답 - LangChain 서버 이용
 LANGCHAIN_SERVER_URL = "http://localhost:8001"  # LangChain 서버 URL
-WS_SERVER_URL = "ws://localhost:8001"  # LangChain 서버 URL
+WS_SERVER_URL = "ws://localhost:8001"  # ws 서버 URL
 
 def get_chat_history(db: Session, room_id: str, limit: int = 10) -> str:
     """
@@ -443,65 +469,52 @@ async def send_to_langchain(request_data: dict, room_id: str):
         print(f"Error in send_to_langchain: {str(e)}")
         raise HTTPException(status_code=500, detail="LangChain 서버와 통신 중 오류가 발생했습니다.")
 
-# ----------------------------------------수정 필요----------------------------------------
+# ----------------------------------------------------------------------------------------
 @app.post("/api/chat/{room_id}")
 async def query_langchain(room_id: str, message: MessageSchema, db: Session = Depends(get_db)):
     """
     LangChain 서버에 요청을 보내고 응답을 처리합니다.
     """
     try:
-        # DB에서 채팅방과 캐릭터 정보 불러오기
-        room = db.query(ChatRoom).filter(ChatRoom.chat_id == room_id).first()
-        if not room:
-            raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
-
-        # 캐릭터와 프롬프트 정보 가져오기
-        character_prompt = db.query(CharacterPrompt).filter(
-            CharacterPrompt.char_prompt_id == room.character_id
-        ).first()
-
-        if not character_prompt:
-            raise HTTPException(status_code=404, detail="캐릭터 프롬프트를 찾을 수 없습니다.")
-
-        # 사용자 메시지 생성
-        session_id = str(uuid.uuid4())
-        current_time = datetime.now()
-
-        chat_log = ChatLog(
-            session_id=session_id,
-            chat_id=room_id,
-            log=f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] user: {message.content}\n",
-            start_time=current_time,
-            end_time=current_time
+        chat_data = (
+            db.query(ChatRoom, CharacterPrompt, Character)
+            .join(CharacterPrompt, ChatRoom.char_prompt_id == CharacterPrompt.char_prompt_id)
+            .join(Character, CharacterPrompt.char_idx == Character.char_idx)
+            .filter(ChatRoom.chat_id == room_id)
+            .first()
         )
-        db.add(chat_log)
-        db.commit()
 
-        # 대화 내역 가져오기
+        if not chat_data:
+            raise HTTPException(status_code=404, detail="해당 채팅방 정보를 찾을 수 없습니다.")
+        
+        chat, prompt, character = chat_data
+
+        if prompt:
+            example_dialogues = [json.loads(clean_json_string(dialogue)) if dialogue else {} for dialogue in prompt.example_dialogues] if prompt.example_dialogues else []
+            nicknames = json.loads(character.nicknames) if character.nicknames else {'30': '', '70': '', '100': ''}
+        else:
+            # 기본값 설정
+            example_dialogues = []
+            nicknames = {'30': '', '70': '', '100': ''}
+
+        # --------------------대화 내역 가져오기--------------------
         chat_history = get_chat_history(db, room_id)
         print("Chat History being sent to LangChain:", chat_history)
-
-        # JSON 문자열을 딕셔너리로 변환하고 description 키로 감싸기
-        try:
-            character_appearance = {"description": json.loads(character_prompt.character_appearance)} if character_prompt.character_appearance else None
-            character_personality = {"description": json.loads(character_prompt.character_personality)} if character_prompt.character_personality else None
-            character_background = {"description": json.loads(character_prompt.character_background)} if character_prompt.character_background else None
-            character_speech_style = {"description": json.loads(character_prompt.character_speech_style)} if character_prompt.character_speech_style else None
-            example_dialogues = [json.loads(dialogue) if dialogue else None for dialogue in character_prompt.example_dialogues] if character_prompt.example_dialogues else []
-        except json.JSONDecodeError as e:
-            raise HTTPException(status_code=500, detail=f"JSON 데이터 변환 오류: {str(e)}")
 
         # LangChain 서버로 보낼 요청 데이터 준비
         request_data = {
             "user_message": message.content,
-            "character_name": room.character_name,
-            "favorability": room.character_likes,
-            "character_appearance": character_appearance,
-            "character_personality": character_personality,
-            "character_background": character_background,
-            "character_speech_style": character_speech_style,
-            "example_dialogues": example_dialogues,
-            "chat_history": chat_history
+            "character_name": character.char_name, # 캐릭터 이름
+            "nickname": nicknames, # 호감도에 따른 호칭 명
+            "user_unique_name": chat.user_unique_name, # 캐릭터가 사용자에게 부르는 이름 (nickname보다 우선순위)
+            "user_introduction": chat.user_introduction, # 캐릭터한테 사용자를 소개하는 글
+            "favorability": chat.favorability, # 호감도
+            "character_appearance": prompt.character_appearance, # 캐릭터 외형
+            "character_personality": prompt.character_personality, # 캐릭터 성격
+            "character_background": prompt.character_background, # 캐릭터 배경
+            "character_speech_style": prompt.character_speech_style, # 캐릭터 말투
+            "example_dialogues": example_dialogues, # 예시 대화
+            "chat_history": chat_history # 채팅 기록
         }
         print("Full request data:", request_data)  # 로그 추가
 
@@ -512,24 +525,11 @@ async def query_langchain(room_id: str, message: MessageSchema, db: Session = De
 
         bot_response_text = response_data.get("text", "openai_api 에러가 발생했습니다.")
         predicted_emotion = response_data.get("emotion", "Neutral")
-        updated_favorability = response_data.get("favorability", room.character_likes)
+        updated_favorability = response_data.get("favorability", chat.favorability)
 
         # 캐릭터 상태 업데이트
-        room.character_likes = updated_favorability
-        room.character_emotion = predicted_emotion
-        db.commit()
-
-        # 봇 응답 메시지 저장
-        bot_message_id = str(uuid.uuid4())
-        bot_message = ChatLog(
-            session_id=bot_message_id,
-            chat_id=room_id,
-            log=f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] chatbot: {bot_response_text}",
-            start_time=datetime.now(),
-            end_time=datetime.now()
-        )
-        db.add(bot_message)
-        db.commit()
+        chat.favorability = updated_favorability
+        # room.character_emotion = predicted_emotion (기분은 어떻게???)
 
         return {
             "user": message.content,
@@ -641,7 +641,7 @@ def clean_json_string(json_string):
         return json_string
     return re.sub(r'[\x00-\x1F\x7F]', '', json_string)
 
-# 캐릭터 목록 조회 API--------------------------
+# 캐릭터 목록 조회 API
 @app.get("/api/characters/", response_model=List[dict])
 def get_characters(db: Session = Depends(get_db), request: Request = None):
     # 각 캐릭터에 대한 최신 char_prompt_id를 가져오는 subquery
@@ -666,6 +666,67 @@ def get_characters(db: Session = Depends(get_db), request: Request = None):
         .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
         .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
         .filter(Character.is_active == True)  # is_active가 True인 캐릭터만 가져오기
+    )
+
+    characters_info = query.all()
+
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}" if request else ""
+    results = []
+    for char, prompt, image_path in characters_info:
+        if prompt:
+            example_dialogues = [json.loads(clean_json_string(dialogue)) if dialogue else {} for dialogue in prompt.example_dialogues] if prompt.example_dialogues else []
+            nicknames = json.loads(char.nicknames) if char.nicknames else {'30': '', '70': '', '100': ''}
+        else:
+            # 기본값 설정
+            example_dialogues = []
+            nicknames = {'30': '', '70': '', '100': ''}
+
+        # 이미지 URL 생성
+        image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
+
+        results.append({
+            "char_idx": char.char_idx,
+            "char_name": char.char_name,
+            "char_description": char.char_description,
+            "created_at": char.created_at.isoformat(),
+            "nicknames": nicknames,
+            "character_appearance": prompt.character_appearance if prompt else "",
+            "character_personality": prompt.character_personality if prompt else "",
+            "character_background": prompt.character_background if prompt else "",
+            "character_speech_style": prompt.character_speech_style if prompt else "",
+            "example_dialogues": example_dialogues,
+            "character_image": image_url,
+        })
+    return results
+
+# 특정 유저가 생성한 캐릭터 목록 조회 API
+@app.get("/api/characters/user/{user_id}", response_model=List[dict])
+def get_characters(user_id: int, db: Session = Depends(get_db), request: Request = None):
+    # 각 캐릭터에 대한 최신 char_prompt_id를 가져오는 subquery
+    subquery = (
+        select(
+            CharacterPrompt.char_idx,
+            func.max(CharacterPrompt.created_at).label("latest_created_at")
+        )
+        .group_by(CharacterPrompt.char_idx)
+        .subquery()
+    )
+
+    # 캐릭터를 최신 프롬프트와 join하고 이미지 정보를 포함하는 query
+    query = (
+        db.query(Character, CharacterPrompt, Image.file_path)
+        .join(subquery, subquery.c.char_idx == Character.char_idx)
+        .join(
+            CharacterPrompt,
+            (CharacterPrompt.char_idx == subquery.c.char_idx) &
+            (CharacterPrompt.created_at == subquery.c.latest_created_at)
+        )
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
+        .filter(
+            Character.is_active == True,
+            Character.character_owner == user_id
+        )
     )
 
     characters_info = query.all()
@@ -775,50 +836,6 @@ def delete_character(char_idx: int, db: Session = Depends(get_db)):
     character.is_active = False
     db.commit()
     return {"message": f"캐릭터 {char_idx}이(가) 성공적으로 삭제되었습니다."}
-
-# 채팅방에 연결된 캐릭터 정보 조회 API
-@app.get("/api/chat-room/{room_id}/character")
-def get_room_character(room_id: str, db: Session = Depends(get_db)):
-    """
-    특정 채팅방에 연결된 캐릭터 정보를 반환하는 API 엔드포인트.
-    """
-    try:
-        # 채팅방, 캐릭터 프롬프트, 캐릭터 정보를 가져오는 쿼리
-        chat_data = (
-            db.query(ChatRoom, CharacterPrompt, Character)
-            .join(CharacterPrompt, ChatRoom.char_prompt_id == CharacterPrompt.char_prompt_id)
-            .join(Character, CharacterPrompt.char_idx == Character.char_idx)
-            .filter(ChatRoom.chat_id == room_id)
-            .first()
-        )
-
-        if not chat_data:
-            raise HTTPException(status_code=404, detail="해당 채팅방 정보를 찾을 수 없습니다.")
-
-        # 데이터 분리
-        chat, prompt, character = chat_data
-
-        # 응답 데이터 구성
-        return {
-            "chat_id": chat.chat_id,
-            "user_idx": chat.user_idx,
-            "favorability": chat.favorability,
-            "user_unique_name": chat.user_unique_name,
-            "user_introduction": chat.user_introduction,
-            "room_created_at": chat.created_at.isoformat(),
-            "char_idx": character.char_idx,
-            "char_name": character.char_name,
-            "char_description": character.char_description,
-            "character_appearance": prompt.character_appearance,
-            "character_personality": prompt.character_personality,
-            "character_background": prompt.character_background,
-            "character_speech_style": prompt.character_speech_style,
-            "example_dialogues": prompt.example_dialogues,
-        }
-    except Exception as e:
-        print(f"Error fetching chat room info: {str(e)}")  # 에러 로깅
-        raise HTTPException(status_code=500, detail=f"채팅방 정보를 가져오는 중 오류가 발생했습니다: {str(e)}")
-
 
 # 이미지 생성 요청 API
 @app.post("/generate-image/")
