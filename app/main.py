@@ -53,10 +53,13 @@ RESPONSE_IMG_QUEUE = "image_generation_responses" #
 REQUEST_TTS_QUEUE = "tts_generation_requests" # TTS 요청
 RESPONSE_TTS_QUEUE = "tts_generation_responses" #
 
+CLIENT_DOMAIN = os.getenv("CLIENT_DOMAIN")
+WS_SERVER_DOMAIN = os.getenv("WS_SERVER_DOMAIN")
+
 # CORS 설정: 모든 도메인, 메서드, 헤더를 허용
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # 모든 도메인 허용
+    allow_origins=[CLIENT_DOMAIN],  # 모든 도메인 허용
     allow_credentials=True, # 자격 증명 허용 (쿠키 등)
     allow_methods=["*"], # 모든 HTTP 메서드 허용 (GET, POST 등)
     allow_headers=["*"], # 모든 HTTP 헤더 허용
@@ -442,8 +445,6 @@ def get_chat_room_info(room_id: str, db: Session = Depends(get_db)):
 # ----------------------------------------------------------------------------------------
 # ----------------------------------------확인 필요----------------------------------------
 # 채팅 전송 및 캐릭터 응답 - LangChain 서버 이용
-LANGCHAIN_SERVER_URL = "http://localhost:8001"  # LangChain 서버 URL
-WS_SERVER_URL = "ws://localhost:8001"  # ws 서버 URL
 
 def get_chat_history(db: Session, room_id: str, limit: int = 10) -> str:
     """
@@ -472,7 +473,7 @@ async def send_to_langchain(request_data: dict, room_id: str):
     LangChain WebSocket 서버에 데이터를 전송하고 응답을 반환.
     """
     try:
-        uri = f"ws://localhost:8001/ws/generate/?room_id={room_id}"
+        uri = f"{WS_SERVER_DOMAIN}/ws/generate/?room_id={room_id}"
         async with websockets.connect(uri) as websocket:
             # 요청 데이터 전송
             await websocket.send(json.dumps(request_data))
