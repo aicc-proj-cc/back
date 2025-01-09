@@ -550,6 +550,8 @@ async def query_langchain(room_id: str, message: MessageSchema, db: Session = De
 
         # 캐릭터 상태 업데이트
         chat.favorability = updated_favorability
+        # 데이터베이스에 업데이트된 호감도 반영
+        db.commit()
         # room.character_emotion = predicted_emotion (기분은 어떻게???)
 
         return {
