@@ -1051,27 +1051,35 @@ def follow_character(
     db: Session = Depends(get_db)
 ):
     try:
-        # 이미 팔로우 중인지 확인
+        # 기존 팔로우 관계 확인
         existing_follow = db.query(Friend).filter(
             Friend.user_idx == user_idx,
-            Friend.char_idx == char_idx,
-            Friend.is_active == True
+            Friend.char_idx == char_idx
         ).first()
 
         if existing_follow:
-            raise HTTPException(status_code=400, detail="이미 팔로우한 캐릭터입니다.")
+            if existing_follow.is_active:
+                raise HTTPException(status_code=400, detail="이미 팔로우한 캐릭터입니다.")
+            else:
+                # 기존 관계가 비활성화되어 있으면 활성화
+                existing_follow.is_active = True
+                db.commit()
+                return {"message": "팔로우가 재활성화되었습니다."}
 
         # 새로운 팔로우 관계 생성
         new_follow = Friend(
             user_idx=user_idx,
-            char_idx=char_idx
+            char_idx=char_idx,
+            is_active=True
         )
         db.add(new_follow)
         db.commit()
         return {"message": "성공적으로 팔로우했습니다."}
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.delete("/api/friends/unfollow/{user_idx}/{char_idx}", response_model=dict)
 def unfollow_character(
