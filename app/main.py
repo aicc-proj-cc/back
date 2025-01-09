@@ -1325,6 +1325,25 @@ async def update_character(
         print(f"Full traceback: {traceback.format_exc()}")  # 전체 스택 트레이스 출력
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.delete("/api/chat-room/{room_id}")
+def delete_chat_room(room_id: str, db: Session = Depends(get_db)):
+    try:
+        # `chat_logs` 삭제
+        db.query(ChatLog).filter(ChatLog.chat_id == room_id).delete()
+
+        # `chat_rooms` 삭제
+        room = db.query(ChatRoom).filter(ChatRoom.chat_id == room_id).first()
+        if not room:
+            raise HTTPException(status_code=404, detail="해당 채팅방을 찾을 수 없습니다.")
+        
+        db.delete(room)
+        db.commit()
+        return {"message": "채팅방이 성공적으로 삭제되었습니다."}
+    except Exception as e:
+        db.rollback()
+        print(f"Error deleting chat room: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"채팅방 삭제 중 오류: {str(e)}")
 
 @app.get("/")
 async def root():
