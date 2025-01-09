@@ -17,6 +17,9 @@ import re
 import websockets
 import asyncio
 from pathlib import Path  # 파일 경로 조작을 위한 모듈
+from fastapi.staticfiles import StaticFiles
+
+
 
 
 # from auth import verify_token
@@ -31,6 +34,7 @@ import os
 import user
 import wordcloud_router
 import search
+import image
 
 
 # FastAPI 앱 초기화
@@ -39,6 +43,8 @@ app = FastAPI()
 app.include_router(user.router)
 app.include_router(wordcloud_router.router, prefix="/api", tags=["WordCloud"])
 app.include_router(search.router, tags=["Search"])
+app.include_router(image.routes, tags=["Images"])
+app.mount("/images", StaticFiles(directory="uploads\characters"), name="images")
 
 # RabbitMQ 연결 설정
 # 배포용 PC 에 rabbitMQ 서버 및 GPU서버 세팅 완료 - 250102 민식 
@@ -157,6 +163,7 @@ class CharacterCardResponseSchema(BaseModel):
     char_name: str
     character_owner: int
     char_description: str
+    character_image: str
     created_at: datetime  # datetime으로 선언 (Pydantic이 자동으로 변환)
 
     class Config:
@@ -697,6 +704,12 @@ def get_characters(db: Session = Depends(get_db), request: Request = None):
     results = []
 
     for char, prompt, image_path in characters_info:
+
+        follower_count = (
+            db.query(func.count(Friend.friend_idx))
+            .filter(Friend.char_idx == char.char_idx, Friend.is_active == True)
+            .scalar()
+        )
         print(f"Character: {char.char_name}, field_idx: {char.field_idx}, type: {type(char.field_idx)}")
         if prompt:
             example_dialogues = [json.loads(clean_json_string(dialogue)) if dialogue else {} for dialogue in prompt.example_dialogues] if prompt.example_dialogues else []
@@ -729,7 +742,8 @@ def get_characters(db: Session = Depends(get_db), request: Request = None):
             "example_dialogues": example_dialogues,
             "tags": tag_list,
             "character_image": image_url,
-            "field_idx": char.field_idx
+            "field_idx": char.field_idx,
+            "follower_count": follower_count
         })
 
     return results
@@ -814,19 +828,51 @@ def parse_fields(fields: Optional[str] = Query(default=None)):
 def get_characters_by_field(
     fields: Optional[List[int]] = Depends(parse_fields),
     limit: int = Query(default=10),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """
     필드 컬럼 값이 없으면 전체 데이터를 반환합니다.
     fields가 주어지면 해당 필드에 해당하는 캐릭터만 반환합니다.
     limit 값은 기본적으로 10개입니다.
     """
-    query = db.query(Character).filter(Character.is_active == True)
-    if fields:  # fields 값이 주어지면 필터링
-        query = query.filter(Character.field_idx.in_(fields))
-    characters = query.limit(limit).all()  # limit 적용
+    # 기본 쿼리 작성
+    query = (
+        db.query(Character, Image.file_path)
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
+        .filter(Character.is_active == True)
+    )
 
-    return characters
+    # fields 필터링 적용
+    if fields:
+        query = query.filter(Character.field_idx.in_(fields))
+
+    # limit 적용 및 데이터 가져오기
+    characters_info = query.limit(limit).all()
+
+    # 요청 URL로부터 base URL 생성
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}" if request else ""
+
+    # 결과 리스트 생성
+    results = []
+    for char, image_path in characters_info:
+        # 이미지 URL 생성
+        image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
+
+        # 결과에 추가
+        results.append({
+            "char_idx": char.char_idx,
+            "char_name": char.char_name,
+            "char_description": char.char_description,
+            "created_at": char.created_at.isoformat(),
+            "field_idx": char.field_idx,
+            "character_owner": char.character_owner,
+            "character_image": image_url,
+        })
+
+    return results
+
 
 # 캐릭터 목록 조회 API - 태그 기준 조회
 @app.get("/api/characters/tag", response_model=List[CharacterCardResponseSchema])
@@ -1099,6 +1145,241 @@ def check_follow(user_idx: int, char_idx: int, db: Session = Depends(get_db)):
         Friend.is_active == True
     ).first()
     return {"is_following": bool(follow)}
+
+@app.get("/api/friends/{user_idx}/characters", response_model=List[dict])
+def get_followed_characters(user_idx: int, db: Session = Depends(get_db), request: Request = None):
+    """
+    특정 사용자가 팔로우한 캐릭터 목록을 반환하는 API 엔드포인트.
+    """
+    subquery = (
+        select(
+            CharacterPrompt.char_idx,
+            func.max(CharacterPrompt.created_at).label("latest_created_at")
+        )
+        .group_by(CharacterPrompt.char_idx)
+        .subquery()
+    )
+
+    # Friend 테이블을 사용하여 특정 사용자가 팔로우한 캐릭터 조회
+    query = (
+        db.query(Character, CharacterPrompt, Image.file_path)
+        .join(subquery, subquery.c.char_idx == Character.char_idx)
+        .join(
+            CharacterPrompt,
+            (CharacterPrompt.char_idx == subquery.c.char_idx) &
+            (CharacterPrompt.created_at == subquery.c.latest_created_at)
+        )
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
+        .join(Friend, Friend.char_idx == Character.char_idx)
+        .filter(
+            Friend.user_idx == user_idx,
+            Friend.is_active == True,
+            Character.is_active == True  # 활성화된 캐릭터만 조회
+        )
+    )
+
+    followed_characters = query.all()
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}" if request else ""
+    results = []
+
+    for char, prompt, image_path in followed_characters:
+        image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
+
+        results.append({
+            "char_idx": char.char_idx,
+            "character_owner": char.character_owner,
+            "char_name": char.char_name,
+            "char_description": char.char_description,
+            "created_at": char.created_at.isoformat(),
+            "character_appearance": prompt.character_appearance if prompt else "",
+            "character_personality": prompt.character_personality if prompt else "",
+            "character_background": prompt.character_background if prompt else "",
+            "character_speech_style": prompt.character_speech_style if prompt else "",
+            "character_image": image_url,
+        })
+
+    return results
+
+@app.get("/api/characters/{char_idx}", response_model=dict)
+def get_character_by_id(char_idx: int, db: Session = Depends(get_db), request: Request = None):
+    """
+    특정 캐릭터 정보를 반환하는 API 엔드포인트 (이미지, 호칭, 필드값 포함).
+    """
+    character_data = (
+        db.query(Character, CharacterPrompt, Image.file_path, DBField.field_category)
+        .join(CharacterPrompt, Character.char_idx == CharacterPrompt.char_idx)
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
+        .join(DBField, DBField.field_idx == Character.field_idx)
+        .filter(Character.char_idx == char_idx, Character.is_active == True)
+        .first()
+    )
+
+    follower_count = db.query(Friend).filter(Friend.char_idx == char_idx, Friend.is_active == True).count()
+
+    if not character_data:
+        raise HTTPException(status_code=404, detail="해당 캐릭터를 찾을 수 없습니다.")
+    
+    character, prompt, image_path, field_category = character_data
+
+    # 이미지 URL 생성
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}" if request else ""
+    image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
+
+    # JSON으로 저장된 호칭을 파싱
+    nicknames = json.loads(character.nicknames) if character.nicknames else {}
+
+    return {
+        "char_idx": character.char_idx,
+        "char_name": character.char_name,
+        "char_description": character.char_description,
+        "created_at": character.created_at.isoformat(),
+        "character_appearance": prompt.character_appearance,
+        "character_personality": prompt.character_personality,
+        "character_background": prompt.character_background,
+        "character_speech_style": prompt.character_speech_style,
+        "example_dialogues": prompt.example_dialogues,
+        "tags": [
+            {"tag_name": tag.tag_name, "tag_description": tag.tag_description}
+            for tag in db.query(Tag).filter(Tag.char_idx == character.char_idx, Tag.is_deleted == False).all()
+        ],
+        "character_image": image_url,
+        "field_idx": character.field_idx,  # 필드 카테고리 추가
+        "nicknames": nicknames,  # 호칭 정보 추가
+        "follower_count": follower_count
+    }
+
+
+@app.put("/api/characters/{char_idx}")
+async def update_character(
+    char_idx: int,
+    character_image: Optional[UploadFile] = None,
+    character_data: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        print(f"Received character data for update: {character_data}")  # 로깅 추가
+        with db.begin():
+            character_dict = json.loads(character_data)
+            print(f"Parsed character dict: {character_dict}")  # 로깅 추가
+            
+            # CreateCharacterSchema 검증 전에 데이터 확인
+            required_fields = ['character_owner', 'field_idx', 'voice_idx', 'char_name', 'char_description']
+            for field in required_fields:
+                if field not in character_dict:
+                    raise ValueError(f"Missing required field: {field}")
+            
+            character = CreateCharacterSchema(**character_dict)
+            print(f"Created schema object: {character}")  # 로깅 추가
+
+            # 기존 캐릭터 조회
+            existing_character = db.query(Character).filter(Character.char_idx == char_idx).first()
+            if not existing_character:
+                raise HTTPException(status_code=404, detail="캐릭터를 찾을 수 없습니다.")
+
+            print(f"Found existing character: {existing_character.char_idx}")  # 로깅 추가
+
+            # 캐릭터 기본 정보 업데이트
+            existing_character.field_idx = character.field_idx
+            existing_character.voice_idx = character.voice_idx
+            existing_character.char_name = character.char_name
+            existing_character.char_description = character.char_description
+            existing_character.nicknames = json.dumps(character.nicknames)
+
+            # 새로운 프롬프트 생성
+            new_prompt = CharacterPrompt(
+                char_idx=char_idx,
+                character_appearance=character.character_appearance,
+                character_personality=character.character_personality,
+                character_background=character.character_background,
+                character_speech_style=character.character_speech_style,
+                example_dialogues=(
+                    [json.dumps(dialogue, ensure_ascii=False) for dialogue in character.example_dialogues]
+                    if character.example_dialogues else None
+                ),
+            )
+            db.add(new_prompt)
+            print("Added new prompt")  # 로깅 추가
+
+            # 이미지가 제공된 경우에만 이미지 업데이트
+            if character_image:
+                print("Processing new image")  # 로깅 추가
+                # 기존 이미지 매핑 비활성화
+                old_mappings = db.query(ImageMapping).filter(
+                    ImageMapping.char_idx == char_idx
+                ).all()
+                for mapping in old_mappings:
+                    mapping.is_active = False
+
+                # 새 이미지 저장
+                file_extension = character_image.filename.split(".")[-1]
+                timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                unique_filename = f"{timestamp}_{uuid.uuid4().hex}.{file_extension}"
+                file_path = os.path.join(UPLOAD_DIR, unique_filename)
+
+                with open(file_path, "wb") as f:
+                    f.write(await character_image.read())
+
+                new_image = Image(file_path=file_path)
+                db.add(new_image)
+                db.flush()
+
+                # 새 이미지 매핑 생성
+                new_mapping = ImageMapping(
+                    char_idx=char_idx,
+                    img_idx=new_image.img_idx
+                )
+                db.add(new_mapping)
+                print("Successfully updated image")  # 로깅 추가
+
+            # 태그 업데이트
+            if character.tags:
+                print("Updating tags")  # 로깅 추가
+                # 기존 태그 비활성화
+                existing_tags = db.query(Tag).filter(Tag.char_idx == char_idx).all()
+                for tag in existing_tags:
+                    tag.is_deleted = True
+
+                # 새 태그 추가
+                for tag in character.tags:
+                    new_tag = Tag(
+                        char_idx=char_idx,
+                        tag_name=tag["tag_name"],
+                        tag_description=tag["tag_description"]
+                    )
+                    db.add(new_tag)
+                print("Successfully updated tags")  # 로깅 추가
+
+        db.commit()
+        return {"message": "캐릭터가 성공적으로 업데이트되었습니다."}
+
+    except Exception as e:
+        print(f"Detailed error in update_character: {str(e)}")  # 상세 에러 로깅
+        print(f"Error type: {type(e)}")  # 에러 타입 출력
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")  # 전체 스택 트레이스 출력
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.delete("/api/chat-room/{room_id}")
+def delete_chat_room(room_id: str, db: Session = Depends(get_db)):
+    try:
+        # `chat_logs` 삭제
+        db.query(ChatLog).filter(ChatLog.chat_id == room_id).delete()
+
+        # `chat_rooms` 삭제
+        room = db.query(ChatRoom).filter(ChatRoom.chat_id == room_id).first()
+        if not room:
+            raise HTTPException(status_code=404, detail="해당 채팅방을 찾을 수 없습니다.")
+        
+        db.delete(room)
+        db.commit()
+        return {"message": "채팅방이 성공적으로 삭제되었습니다."}
+    except Exception as e:
+        db.rollback()
+        print(f"Error deleting chat room: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"채팅방 삭제 중 오류: {str(e)}")
 
 @app.get("/")
 async def root():
