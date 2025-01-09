@@ -703,6 +703,12 @@ def get_characters(db: Session = Depends(get_db), request: Request = None):
     results = []
 
     for char, prompt, image_path in characters_info:
+
+        follower_count = (
+            db.query(func.count(Friend.friend_idx))
+            .filter(Friend.char_idx == char.char_idx, Friend.is_active == True)
+            .scalar()
+        )
         print(f"Character: {char.char_name}, field_idx: {char.field_idx}, type: {type(char.field_idx)}")
         if prompt:
             example_dialogues = [json.loads(clean_json_string(dialogue)) if dialogue else {} for dialogue in prompt.example_dialogues] if prompt.example_dialogues else []
@@ -735,7 +741,8 @@ def get_characters(db: Session = Depends(get_db), request: Request = None):
             "example_dialogues": example_dialogues,
             "tags": tag_list,
             "character_image": image_url,
-            "field_idx": char.field_idx
+            "field_idx": char.field_idx,
+            "follower_count": follower_count
         })
 
     return results
@@ -1208,6 +1215,8 @@ def get_character_by_id(char_idx: int, db: Session = Depends(get_db), request: R
         .first()
     )
 
+    follower_count = db.query(Friend).filter(Friend.char_idx == char_idx, Friend.is_active == True).count()
+
     if not character_data:
         raise HTTPException(status_code=404, detail="해당 캐릭터를 찾을 수 없습니다.")
     
@@ -1236,7 +1245,8 @@ def get_character_by_id(char_idx: int, db: Session = Depends(get_db), request: R
         ],
         "character_image": image_url,
         "field_idx": character.field_idx,  # 필드 카테고리 추가
-        "nicknames": nicknames  # 호칭 정보 추가
+        "nicknames": nicknames,  # 호칭 정보 추가
+        "follower_count": follower_count
     }
 
 
