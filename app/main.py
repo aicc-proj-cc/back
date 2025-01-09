@@ -1099,6 +1099,61 @@ def check_follow(user_idx: int, char_idx: int, db: Session = Depends(get_db)):
     ).first()
     return {"is_following": bool(follow)}
 
+@app.get("/api/friends/{user_idx}/characters", response_model=List[dict])
+def get_followed_characters(user_idx: int, db: Session = Depends(get_db), request: Request = None):
+    """
+    특정 사용자가 팔로우한 캐릭터 목록을 반환하는 API 엔드포인트.
+    """
+    subquery = (
+        select(
+            CharacterPrompt.char_idx,
+            func.max(CharacterPrompt.created_at).label("latest_created_at")
+        )
+        .group_by(CharacterPrompt.char_idx)
+        .subquery()
+    )
+
+    # Friend 테이블을 사용하여 특정 사용자가 팔로우한 캐릭터 조회
+    query = (
+        db.query(Character, CharacterPrompt, Image.file_path)
+        .join(subquery, subquery.c.char_idx == Character.char_idx)
+        .join(
+            CharacterPrompt,
+            (CharacterPrompt.char_idx == subquery.c.char_idx) &
+            (CharacterPrompt.created_at == subquery.c.latest_created_at)
+        )
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
+        .join(Friend, Friend.char_idx == Character.char_idx)
+        .filter(
+            Friend.user_idx == user_idx,
+            Friend.is_active == True,
+            Character.is_active == True  # 활성화된 캐릭터만 조회
+        )
+    )
+
+    followed_characters = query.all()
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}" if request else ""
+    results = []
+
+    for char, prompt, image_path in followed_characters:
+        image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
+
+        results.append({
+            "char_idx": char.char_idx,
+            "char_name": char.char_name,
+            "char_description": char.char_description,
+            "created_at": char.created_at.isoformat(),
+            "character_appearance": prompt.character_appearance if prompt else "",
+            "character_personality": prompt.character_personality if prompt else "",
+            "character_background": prompt.character_background if prompt else "",
+            "character_speech_style": prompt.character_speech_style if prompt else "",
+            "character_image": image_url,
+        })
+
+    return results
+
+
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
