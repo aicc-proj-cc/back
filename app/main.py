@@ -160,6 +160,7 @@ class CharacterCardResponseSchema(BaseModel):
     char_name: str
     character_owner: int
     char_description: str
+    character_image: str
     created_at: datetime  # datetime으로 선언 (Pydantic이 자동으로 변환)
 
     class Config:
@@ -819,19 +820,51 @@ def parse_fields(fields: Optional[str] = Query(default=None)):
 def get_characters_by_field(
     fields: Optional[List[int]] = Depends(parse_fields),
     limit: int = Query(default=10),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """
     필드 컬럼 값이 없으면 전체 데이터를 반환합니다.
     fields가 주어지면 해당 필드에 해당하는 캐릭터만 반환합니다.
     limit 값은 기본적으로 10개입니다.
     """
-    query = db.query(Character).filter(Character.is_active == True)
-    if fields:  # fields 값이 주어지면 필터링
-        query = query.filter(Character.field_idx.in_(fields))
-    characters = query.limit(limit).all()  # limit 적용
+    # 기본 쿼리 작성
+    query = (
+        db.query(Character, Image.file_path)
+        .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
+        .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
+        .filter(Character.is_active == True)
+    )
 
-    return characters
+    # fields 필터링 적용
+    if fields:
+        query = query.filter(Character.field_idx.in_(fields))
+
+    # limit 적용 및 데이터 가져오기
+    characters_info = query.limit(limit).all()
+
+    # 요청 URL로부터 base URL 생성
+    base_url = f"{request.base_url.scheme}://{request.base_url.netloc}" if request else ""
+
+    # 결과 리스트 생성
+    results = []
+    for char, image_path in characters_info:
+        # 이미지 URL 생성
+        image_url = f"{base_url}/static/{os.path.basename(image_path)}" if image_path else None
+
+        # 결과에 추가
+        results.append({
+            "char_idx": char.char_idx,
+            "char_name": char.char_name,
+            "char_description": char.char_description,
+            "created_at": char.created_at.isoformat(),
+            "field_idx": char.field_idx,
+            "character_owner": char.character_owner,
+            "character_image": image_url,
+        })
+
+    return results
+
 
 # 캐릭터 목록 조회 API - 태그 기준 조회
 @app.get("/api/characters/tag", response_model=List[CharacterCardResponseSchema])
@@ -1051,35 +1084,27 @@ def follow_character(
     db: Session = Depends(get_db)
 ):
     try:
-        # 기존 팔로우 관계 확인
+        # 이미 팔로우 중인지 확인
         existing_follow = db.query(Friend).filter(
             Friend.user_idx == user_idx,
-            Friend.char_idx == char_idx
+            Friend.char_idx == char_idx,
+            Friend.is_active == True
         ).first()
 
         if existing_follow:
-            if existing_follow.is_active:
-                raise HTTPException(status_code=400, detail="이미 팔로우한 캐릭터입니다.")
-            else:
-                # 기존 관계가 비활성화되어 있으면 활성화
-                existing_follow.is_active = True
-                db.commit()
-                return {"message": "팔로우가 재활성화되었습니다."}
+            raise HTTPException(status_code=400, detail="이미 팔로우한 캐릭터입니다.")
 
         # 새로운 팔로우 관계 생성
         new_follow = Friend(
             user_idx=user_idx,
-            char_idx=char_idx,
-            is_active=True
+            char_idx=char_idx
         )
         db.add(new_follow)
         db.commit()
         return {"message": "성공적으로 팔로우했습니다."}
-
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.delete("/api/friends/unfollow/{user_idx}/{char_idx}", response_model=dict)
 def unfollow_character(
