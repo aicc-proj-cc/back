@@ -339,8 +339,8 @@ def get_all_chat_rooms(request: Request, db: Session = Depends(get_db)):
 
 
 # 특정 유저가 생성한 채팅방 목록 조회 API
-@app.get("/api/chat-room/user/{user_id}", response_model=List[dict])
-def get_user_chat_rooms(user_id: int, request: Request, db: Session = Depends(get_db)):
+@app.get("/api/chat-room/user/{user_idx}", response_model=List[dict])
+def get_user_chat_rooms(user_idx: int, request: Request, db: Session = Depends(get_db)):
     """
     특정 사용자가 생성한 채팅방 목록을 반환하는 API 엔드포인트.
     각 채팅방에 연결된 캐릭터 정보 및 이미지를 포함.
@@ -351,7 +351,7 @@ def get_user_chat_rooms(user_id: int, request: Request, db: Session = Depends(ge
         .join(Character, Character.char_idx == CharacterPrompt.char_idx)
         .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
         .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
-        .filter(ChatRoom.user_idx == user_id, Character.is_active == True)
+        .filter(ChatRoom.user_idx == user_idx, Character.is_active == True)
         .all()
     )
 
