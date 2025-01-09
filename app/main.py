@@ -247,6 +247,28 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
                 raise HTTPException(status_code=404, detail="해당 캐릭터를 찾을 수 없습니다.")
             
             character, prompt = character_data
+
+            # 기존 대화방이 있는지 확인
+            existing_room = (
+                db.query(ChatRoom)
+                .filter(
+                    ChatRoom.user_idx == room.user_idx,
+                    ChatRoom.char_prompt_id == prompt.char_prompt_id
+                )
+                .first()
+            )
+            
+            if existing_room:
+                return {
+                    "room_id": existing_room.chat_id,
+                    "user_idx": existing_room.user_idx,
+                    "character_idx": character.char_idx,
+                    "char_prompt_id": existing_room.char_prompt_id,
+                    "created_at": existing_room.created_at,
+                    "user_unique_name": existing_room.user_unique_name,
+                    "user_introduction": existing_room.user_introduction,
+                    "chat_exists": True
+                }
             
             # 채팅방 ID 생성
             room_id = str(uuid.uuid4())
@@ -272,7 +294,8 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
             "char_prompt_id": new_room.char_prompt_id,
             "created_at": new_room.created_at,
             "user_unique_name": new_room.user_unique_name,
-            "user_introduction": new_room.user_introduction
+            "user_introduction": new_room.user_introduction,
+            "chat_exists": False
         }
     except Exception as e:
         print(f"Error creating chat room: {str(e)}")  # 에러 로깅
