@@ -325,7 +325,7 @@ def get_all_chat_rooms(request: Request, db: Session = Depends(get_db)):
         .join(Character, Character.char_idx == CharacterPrompt.char_idx)
         .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
         .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
-        .filter(Character.is_active == True)
+        .filter(Character.is_active == True, ChatRoom.is_active == True)
         .all()
     )
 
@@ -361,7 +361,7 @@ def get_user_chat_rooms(user_idx: int, request: Request, db: Session = Depends(g
         .join(Character, Character.char_idx == CharacterPrompt.char_idx)
         .outerjoin(ImageMapping, ImageMapping.char_idx == Character.char_idx)
         .outerjoin(Image, Image.img_idx == ImageMapping.img_idx)
-        .filter(ChatRoom.user_idx == user_idx, Character.is_active == True)
+        .filter(ChatRoom.user_idx == user_idx, Character.is_active == True, ChatRoom.is_active == True)
         .all()
     )
 
@@ -418,7 +418,7 @@ def get_chat_room_info(room_id: str, db: Session = Depends(get_db)):
             .join(CharacterPrompt, ChatRoom.char_prompt_id == CharacterPrompt.char_prompt_id)
             .join(Character, CharacterPrompt.char_idx == Character.char_idx)
             .join(Voice, Character.voice_idx == Voice.voice_idx)
-            .filter(ChatRoom.chat_id == room_id)
+            .filter(ChatRoom.chat_id == room_id, ChatRoom.is_active == True)
             .first()
         )
 
@@ -509,7 +509,7 @@ async def query_langchain(room_id: str, message: MessageSchema, db: Session = De
             db.query(ChatRoom, CharacterPrompt, Character)
             .join(CharacterPrompt, ChatRoom.char_prompt_id == CharacterPrompt.char_prompt_id)
             .join(Character, CharacterPrompt.char_idx == Character.char_idx)
-            .filter(ChatRoom.chat_id == room_id)
+            .filter(ChatRoom.chat_id == room_id, ChatRoom.is_active == True)
             .first()
         )
 
@@ -1026,7 +1026,7 @@ def get_tts_model(room_id: str, db: Session = Depends(get_db)):
     특정 채팅방에 연결된 캐릭터 및 TTS 모델 정보를 반환하는 API 엔드포인트.
     """
     # 채팅방 ID를 기준으로 데이터베이스에서 채팅방 검색
-    room = db.query(ChatRoom).filter(ChatRoom.id == room_id).first()
+    room = db.query(ChatRoom).filter(ChatRoom.id == room_id, ChatRoom.is_active == True).first()
     if not room:
         raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
     
@@ -1365,21 +1365,19 @@ async def update_character(
 @app.delete("/api/chat-room/{room_id}")
 def delete_chat_room(room_id: str, db: Session = Depends(get_db)):
     try:
-        # `chat_logs` 삭제
-        db.query(ChatLog).filter(ChatLog.chat_id == room_id).delete()
-
-        # `chat_rooms` 삭제
+        # `chat_rooms`의 is_active를 False로 변경
         room = db.query(ChatRoom).filter(ChatRoom.chat_id == room_id).first()
         if not room:
             raise HTTPException(status_code=404, detail="해당 채팅방을 찾을 수 없습니다.")
         
-        db.delete(room)
+        # is_active 업데이트
+        room.is_active = False
         db.commit()
-        return {"message": "채팅방이 성공적으로 삭제되었습니다."}
+        return {"message": "채팅방이 성공적으로 비활성화되었습니다."}
     except Exception as e:
         db.rollback()
-        print(f"Error deleting chat room: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"채팅방 삭제 중 오류: {str(e)}")
+        print(f"Error updating chat room: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"채팅방 비활성화 중 오류: {str(e)}")
 
 @app.get("/")
 async def root():
