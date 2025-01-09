@@ -1147,6 +1147,7 @@ def get_followed_characters(user_idx: int, db: Session = Depends(get_db), reques
 
         results.append({
             "char_idx": char.char_idx,
+            "character_owner": char.character_owner,
             "char_name": char.char_name,
             "char_description": char.char_description,
             "created_at": char.created_at.isoformat(),
