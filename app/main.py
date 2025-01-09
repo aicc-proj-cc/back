@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Query, Body # FastAPI 프레임워크 및 종속성 주입 도구
 from fastapi.responses import FileResponse
-
-from sqlalchemy import select
+from sqlalchemy.sql.expression import case
+from sqlalchemy import select,cast,String
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Session # SQLAlchemy 세션 관리
 
@@ -1380,6 +1380,45 @@ def delete_chat_room(room_id: str, db: Session = Depends(get_db)):
         db.rollback()
         print(f"Error deleting chat room: {str(e)}")
         raise HTTPException(status_code=500, detail=f"채팅방 삭제 중 오류: {str(e)}")
+    
+@app.get("/api/characters/top3/{user_idx}")
+def get_top3_characters(user_idx: int, db: Session = Depends(get_db)):
+    try:
+        # 중간에 chat_rooms를 조인하여 관계 설정
+        query = (
+            db.query(
+                Character.char_idx,
+                Character.char_name,
+                func.count(ChatLog.session_id).label("log_count")
+            )
+            .join(ChatRoom, ChatRoom.char_prompt_id == Character.char_idx)  # chat_rooms와 characters 조인
+            .join(ChatLog, ChatLog.chat_id == ChatRoom.chat_id)  # chat_logs와 chat_rooms 조인
+            .filter(Character.character_owner == user_idx)  # 특정 유저의 캐릭터만 필터링
+            .group_by(Character.char_idx, Character.char_name)
+            .order_by(func.count(ChatLog.session_id).desc())
+            .limit(3)
+        )
+
+        results = query.all()
+
+        if not results:
+            return {"message": "사용 기록이 있는 캐릭터가 없습니다."}
+
+        # 결과를 리스트로 변환
+        top_characters = [
+            {
+                "char_idx": char.char_idx,
+                "char_name": char.char_name,
+                "log_count": char.log_count
+            }
+            for char in results
+        ]
+
+        return top_characters
+
+    except Exception as e:
+        print(f"Error fetching top characters: {e}")
+        raise HTTPException(status_code=500, detail="캐릭터 데이터를 가져오는 중 오류가 발생했습니다.")
 
 @app.get("/")
 async def root():
