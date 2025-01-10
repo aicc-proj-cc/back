@@ -44,7 +44,10 @@ app.include_router(user.router)
 app.include_router(wordcloud_router.router, prefix="/api", tags=["WordCloud"])
 app.include_router(search.router, tags=["Search"])
 app.include_router(image.routes, tags=["Images"])
-app.mount("/images", StaticFiles(directory="uploads\characters"), name="images")
+
+# 이미지 경로 - OS 따라 경로 변하는 이슈로 인해 os 패키지 사용 (김민식)
+IMAGES_PATH = os.path.join("uploads", "characters")
+app.mount("/images", StaticFiles(directory=IMAGES_PATH), name="images")
 
 # RabbitMQ 연결 설정
 # 배포용 PC 에 rabbitMQ 서버 및 GPU서버 세팅 완료 - 250102 민식 
@@ -263,7 +266,8 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
                 db.query(ChatRoom)
                 .filter(
                     ChatRoom.user_idx == room.user_idx,
-                    ChatRoom.char_prompt_id == prompt.char_prompt_id
+                    ChatRoom.char_prompt_id == prompt.char_prompt_id,
+                    ChatRoom.is_active == True
                 )
                 .first()
             )
