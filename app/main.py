@@ -263,7 +263,8 @@ def create_chat_room(room: CreateRoomSchema, db: Session = Depends(get_db)):
                 db.query(ChatRoom)
                 .filter(
                     ChatRoom.user_idx == room.user_idx,
-                    ChatRoom.char_prompt_id == prompt.char_prompt_id
+                    ChatRoom.char_prompt_id == prompt.char_prompt_id,
+                    ChatRoom.is_active == True
                 )
                 .first()
             )
