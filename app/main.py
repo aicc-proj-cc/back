@@ -1275,12 +1275,13 @@ async def update_character(
             character_dict = json.loads(character_data)
             print(f"Parsed character dict: {character_dict}")  # 로깅 추가
             
-            # CreateCharacterSchema 검증 전에 데이터 확인
+            # 필수 필드 확인
             required_fields = ['character_owner', 'field_idx', 'voice_idx', 'char_name', 'char_description']
             for field in required_fields:
                 if field not in character_dict:
                     raise ValueError(f"Missing required field: {field}")
             
+            # Pydantic 스키마 검증
             character = CreateCharacterSchema(**character_dict)
             print(f"Created schema object: {character}")  # 로깅 추가
 
@@ -1313,46 +1314,70 @@ async def update_character(
             db.add(new_prompt)
             print("Added new prompt")  # 로깅 추가
 
-            # 이미지가 제공된 경우에만 이미지 업데이트
+            # 이미지 업데이트 로직
             if character_image:
-                print("Processing new image")  # 로깅 추가
-                # 기존 이미지 매핑 비활성화
-                old_mappings = db.query(ImageMapping).filter(
-                    ImageMapping.char_idx == char_idx
-                ).all()
-                for mapping in old_mappings:
-                    mapping.is_active = False
+                print("Updating character image...")  # 로깅 추가
 
-                # 새 이미지 저장
-                file_extension = character_image.filename.split(".")[-1]
-                timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-                unique_filename = f"{timestamp}_{uuid.uuid4().hex}.{file_extension}"
-                file_path = os.path.join(UPLOAD_DIR, unique_filename)
+                # 기존 이미지 매핑 및 이미지 가져오기
+                existing_image_mapping = db.query(ImageMapping).filter(
+                    ImageMapping.char_idx == char_idx,
+                    ImageMapping.is_active == True
+                ).first()
 
-                with open(file_path, "wb") as f:
-                    f.write(await character_image.read())
+                if existing_image_mapping:
+                    # 기존 이미지 레코드를 가져옴
+                    existing_image = db.query(Image).filter(
+                        Image.img_idx == existing_image_mapping.img_idx
+                    ).first()
 
-                new_image = Image(file_path=file_path)
-                db.add(new_image)
-                db.flush()
+                    if existing_image:
+                        # 새 이미지 파일 저장
+                        file_extension = character_image.filename.split(".")[-1]
+                        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                        unique_filename = f"{timestamp}_{uuid.uuid4().hex}.{file_extension}"
+                        file_path = os.path.join(UPLOAD_DIR, unique_filename)
 
-                # 새 이미지 매핑 생성
-                new_mapping = ImageMapping(
-                    char_idx=char_idx,
-                    img_idx=new_image.img_idx
-                )
-                db.add(new_mapping)
-                print("Successfully updated image")  # 로깅 추가
+                        # 파일 저장
+                        with open(file_path, "wb") as f:
+                            f.write(await character_image.read())
+
+                        # 기존 이미지 경로 교체
+                        existing_image.file_path = file_path
+                        print("Image file path updated successfully.")  # 로깅 추가
+
+                else:
+                    # 기존 이미지가 없는 경우 새 이미지 레코드를 생성
+                    file_extension = character_image.filename.split(".")[-1]
+                    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                    unique_filename = f"{timestamp}_{uuid.uuid4().hex}.{file_extension}"
+                    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+
+                    # 파일 저장
+                    with open(file_path, "wb") as f:
+                        f.write(await character_image.read())
+
+                    new_image = Image(file_path=file_path)
+                    db.add(new_image)
+                    db.flush()
+
+                    # 새로운 이미지 매핑 추가
+                    new_mapping = ImageMapping(
+                        char_idx=char_idx,
+                        img_idx=new_image.img_idx,
+                        is_active=True
+                    )
+                    db.add(new_mapping)
 
             # 태그 업데이트
             if character.tags:
                 print("Updating tags")  # 로깅 추가
+
                 # 기존 태그 비활성화
                 existing_tags = db.query(Tag).filter(Tag.char_idx == char_idx).all()
                 for tag in existing_tags:
                     tag.is_deleted = True
 
-                # 새 태그 추가
+                # 새로운 태그 추가
                 for tag in character.tags:
                     new_tag = Tag(
                         char_idx=char_idx,
@@ -1372,6 +1397,7 @@ async def update_character(
         print(f"Full traceback: {traceback.format_exc()}")  # 전체 스택 트레이스 출력
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
     
 @app.delete("/api/chat-room/{room_id}")
 def delete_chat_room(room_id: str, db: Session = Depends(get_db)):
