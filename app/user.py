@@ -132,13 +132,21 @@ def verify_token(token: str = Depends(oauth2_scheme)):
         
         if not user_id or not user_idx:
             raise HTTPException(status_code=401, detail="유효하지 않은 토큰")
+        expiration = payload.get("exp")
+        if expiration and datetime.utcnow() > datetime.utcfromtimestamp(expiration):
+            new_token = jwt.encode(
+                {"user_idx": user_idx, "exp": datetime.utcnow() + timedelta(minutes=60)},
+                SECRET_KEY,
+                algorithm=ALGORITHM
+            )
+            return {"user_idx": user_idx, "new_token": new_token}
         
         # 토큰이 유효한 경우 user_idx 반환
         return {"message": "토큰이 유효합니다", "user_idx": user_idx}
-    except JWTError as e:
-        print(f"토큰 검증 오류: {e}")  # 디버깅용 오류 출력
-        raise HTTPException(status_code=401, detail="유효하지 않은 토큰")
-
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 @router.get("/users", response_model=List[UserResponse])
 def get_all_users(db: Session = Depends(get_db)):
