@@ -1201,6 +1201,7 @@ def get_followed_characters(user_idx: int, db: Session = Depends(get_db), reques
 
     return results
 
+# 특정 캐릭터 조회
 @app.get("/api/characters/{char_idx}", response_model=dict)
 def get_character_by_id(char_idx: int, db: Session = Depends(get_db), request: Request = None):
     """
@@ -1250,7 +1251,8 @@ def get_character_by_id(char_idx: int, db: Session = Depends(get_db), request: R
         "follower_count": follower_count
     }
 
-
+# 특정 캐릭터 수정
+# -------------- user_idx 확인해야 함 --------------------------
 @app.put("/api/characters/{char_idx}")
 async def update_character(
     char_idx: int,
