@@ -15,6 +15,3 @@ COPY . .
 # 환경 변수 파일 복사 (선택 사항)
 # ENV 파일은 보안상 도커 이미지에 직접 포함하지 않는 것이 좋습니다.
 # COPY .env /app/.env
-ENTRYPOINT ["sh", "-c", "cd /app &&"]
-# Uvicorn 실행
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0" ,"--port", "8000", "--reload"]
