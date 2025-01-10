@@ -71,7 +71,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://gganbu.9seebird.site",
-        "https://gganbu.9seebird.site"
+        "https://gganbu.9seebird.site",
+        CLIENT_DOMAIN
     ],  # http와 https 모두 허용,  # 모든 도메인 허용
     allow_credentials=True, # 자격 증명 허용 (쿠키 등)
     allow_methods=["*"], # 모든 HTTP 메서드 허용 (GET, POST 등)
