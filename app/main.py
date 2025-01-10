@@ -69,7 +69,10 @@ WS_SERVER_DOMAIN = os.getenv("WS_SERVER_DOMAIN")
 # CORS 설정: 모든 도메인, 메서드, 헤더를 허용
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 모든 도메인 허용
+    allow_origins=[
+        "http://gganbu.9seebird.site",
+        "https://gganbu.9seebird.site"
+    ],  # http와 https 모두 허용,  # 모든 도메인 허용
     allow_credentials=True, # 자격 증명 허용 (쿠키 등)
     allow_methods=["*"], # 모든 HTTP 메서드 허용 (GET, POST 등)
     allow_headers=["*"], # 모든 HTTP 헤더 허용
