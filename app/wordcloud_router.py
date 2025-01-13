@@ -21,6 +21,7 @@ from collections import Counter
 from dotenv import load_dotenv
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
+import matplotlib.font_manager as fm
 
 
 # .env 파일 로드
@@ -82,6 +83,16 @@ def decode_token(token: str):
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
     return decode_token(token)
+
+def find_korean_font():
+    korean_fonts = [f for f in fm.findSystemFonts() if "malgun" in f.lower()]
+    return korean_fonts[0] if korean_fonts else None
+
+font_path = find_korean_font()
+if not font_path:
+    raise HTTPException(status_code=500, detail="한글 지원 폰트를 찾을 수 없습니다.")
+
+
 
 def preprocess_korean_text(logs_text):
     # 입력 텍스트를 NFC(Normalization Form C)로 정규화
