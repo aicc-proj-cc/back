@@ -15,13 +15,11 @@ import shutil
 from pydantic import BaseModel
 from sqlalchemy.ext.declarative import declarative_base
 import re
-import unicodedata
 from database import SessionLocal, ChatRoom, ChatLog
 from collections import Counter
 from dotenv import load_dotenv
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-import matplotlib.font_manager as fm
 
 
 # .env 파일 로드
@@ -84,25 +82,9 @@ def decode_token(token: str):
 def get_current_user(token: str = Depends(oauth2_scheme)):
     return decode_token(token)
 
-def find_korean_font():
-    korean_fonts = [f for f in fm.findSystemFonts() if "malgun" in f.lower()]
-    return korean_fonts[0] if korean_fonts else None
-
-font_path = find_korean_font()
-if not font_path:
-    raise HTTPException(status_code=500, detail="한글 지원 폰트를 찾을 수 없습니다.")
-
-
-
 def preprocess_korean_text(logs_text):
-    # 입력 텍스트를 NFC(Normalization Form C)로 정규화
-    if isinstance(logs_text, bytes):
-        # 바이트 스트림인 경우 UTF-8로 디코딩
-        logs_text = logs_text.decode('utf-8', errors='replace')
-    logs_text = unicodedata.normalize('NFC', logs_text)
-
     # 한글 텍스트 전처리: 한글만 추출
-    words = re.findall(r'[가-힣]+', logs_text) 
+    words = re.findall(r'[가-힣]+', logs_text)  # 한글만 추출
     
     # 한국어 불용어 목록
     korean_stopwords = set([
