@@ -99,7 +99,7 @@ def preprocess_korean_text(logs_text):
     filtered_words = [word for word in words if word not in korean_stopwords]
     return filtered_words
 
-@router.get("/user-wordcloud/{user_idx}", response_class=StreamingResponse)
+@router.get("/user-wordcloud/{user_idx}", response_class=FileResponse)
 def generate_user_wordcloud(user_idx: int, db: Session = Depends(get_db)):
     try:
         # 해당 User_idx의 chat_id 가져오기
@@ -139,10 +139,9 @@ def generate_user_wordcloud(user_idx: int, db: Session = Depends(get_db)):
         ).generate_from_frequencies(word_frequencies)
 
         # 결과 저장 및 반환
-        img_bytes = BytesIO()
-        wordcloud.to_image().save(img_bytes, format="PNG")
-        img_bytes.seek(0)
-        return StreamingResponse(img_bytes, media_type="image/png")
+        output_path = "user_wordcloud.png"
+        wordcloud.to_file(output_path)
+        return FileResponse(output_path, media_type="image/png", filename="user_wordcloud.png")
 
     except Exception as e:
         print(f"Error in generate_user_wordcloud: {e}")
